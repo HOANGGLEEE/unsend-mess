@@ -1,0 +1,469 @@
+/**
+ * FB Unsend Message Viewer — styles.css
+ * Copyright (c) 2026 binhake (https://github.com/binhake/fb-unsend-viewer)
+ * Licensed under the Non-Commercial & Strict Attribution License.
+ * Removing author attribution ("binhake") or unauthorized commercial use is strictly prohibited.
+ */
+/* styles.css - Định dạng hiển thị tin nhắn khôi phục, Toast và Lightbox trên Facebook */
+
+/* ===== Màu theo chế độ sáng/tối của Facebook (FB gắn class __fb-light-mode / __fb-dark-mode) ===== */
+:root,
+.__fb-light-mode {
+  --fbu-text: #d42f32;
+  --fbu-border: rgba(229, 56, 59, 0.5);
+  --fbu-tint: rgba(229, 56, 59, 0.06);
+  --fbu-label-color: rgba(0, 0, 0, 0.65);
+  --fbu-row-mask-bg: var(--card-background, var(--messenger-card-background, #ffffff));
+}
+
+.__fb-dark-mode {
+  --fbu-text: #ff8a8c;
+  --fbu-border: rgba(255, 77, 79, 0.55);
+  --fbu-tint: rgba(255, 77, 79, 0.09);
+  --fbu-label-color: rgba(255, 255, 255, 0.78);
+  --fbu-row-mask-bg: var(--card-background, var(--messenger-card-background, #242526));
+}
+
+/* ===== Bong bóng tin nhắn đã khôi phục ===== */
+.fb-unsend-restored-bubble {
+  border-color: var(--fbu-border) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  background: var(--fbu-tint) !important;
+  box-shadow: none !important;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.fb-unsend-inline-text {
+  font-style: normal !important;
+  font-weight: 600 !important;
+  color: var(--fbu-text) !important;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.fb-unsend-media-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fb-unsend-restored-img {
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 12px;
+  object-fit: cover;
+  cursor: zoom-in;
+  border: none;
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.fb-unsend-restored-img:hover {
+  transform: scale(1.03);
+  filter: brightness(1.06);
+}
+
+.fb-unsend-restored-audio {
+  width: 240px;
+  max-width: 100%;
+  height: 36px;
+  border-radius: 18px;
+  outline: none;
+}
+
+.fb-unsend-restored-video {
+  max-width: 240px;
+  max-height: 220px;
+  border-radius: 12px;
+  border: none;
+  background: #000;
+  outline: none;
+}
+
+/* ===== Khối tin nhắn khôi phục trong Đoạn chat Cộng đồng (khi FB ẩn hẳn dòng gỡ) ===== */
+.fb-unsend-community-restored-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 14px 4px 44px;
+  background-color: var(--fbu-row-mask-bg) !important;
+}
+
+.fb-unsend-community-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 82%;
+}
+
+.fb-unsend-community-item-self {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.fb-unsend-community-bubble {
+  padding: 8px 12px;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.38;
+  color: var(--fbu-label-color);
+  word-break: break-word;
+}
+
+.fb-unsend-community-label {
+  font-style: italic;
+  color: var(--fbu-label-color) !important;
+  font-size: 13px;
+}
+
+/* ===== Icon dùng chung ===== */
+.fb-unsend-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ===== Toast thông báo ===== */
+#fb-unsend-toast-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 2147483640;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.fb-unsend-toast {
+  position: relative;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  padding: 12px 12px 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  background: rgba(24, 26, 32, 0.97);
+  backdrop-filter: blur(14px);
+  color: #eceef2;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+  pointer-events: auto;
+  animation: fbUnsendSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.fb-unsend-toast-hide {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+
+.fb-unsend-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fb-unsend-toast-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: linear-gradient(140deg, #ff6a5c 0%, #ff3d6e 55%, #c837ff 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(255, 61, 110, 0.32);
+}
+
+.fb-unsend-toast-icon .fb-unsend-icon {
+  width: 19px;
+  height: 19px;
+}
+
+.fb-unsend-toast-self .fb-unsend-toast-icon {
+  background: linear-gradient(135deg, #3d7cff 0%, #7b5cff 100%);
+  box-shadow: 0 4px 12px rgba(61, 124, 255, 0.32);
+}
+
+.fb-unsend-toast-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.fb-unsend-toast-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #ffffff;
+}
+
+.fb-unsend-toast-sender {
+  margin-top: 1px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #a3a9b6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-unsend-toast-close {
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a909c;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.fb-unsend-toast-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.fb-unsend-toast-body {
+  display: inline-block;
+  max-width: calc(100% - 44px);
+  max-height: 96px;
+  margin: 10px 0 0 44px;
+  padding: 8px 12px;
+  overflow-y: auto;
+  border-radius: 16px;
+  border-top-left-radius: 6px;
+  background: #2a2e37;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #f2f3f6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.fb-unsend-toast-self .fb-unsend-toast-body {
+  background: linear-gradient(135deg, #3d7cff 0%, #7b5cff 100%);
+  color: #ffffff;
+}
+
+.fb-unsend-toast-body.fb-unsend-toast-body-muted {
+  background: transparent;
+  padding: 0;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: #a3a9b6;
+}
+
+.fb-unsend-toast-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0 44px;
+}
+
+.fb-unsend-toast-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  object-fit: cover;
+  cursor: zoom-in;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: transform 0.15s ease;
+}
+
+.fb-unsend-toast-thumb:hover {
+  transform: scale(1.05);
+}
+
+.fb-unsend-toast-audio {
+  width: 100%;
+  height: 34px;
+  border-radius: 17px;
+  outline: none;
+}
+
+.fb-unsend-toast-video {
+  max-width: 100%;
+  max-height: 140px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #000;
+  outline: none;
+}
+
+.fb-unsend-toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, #ff6a5c, #ff3d6e);
+  transform-origin: left center;
+  animation-name: fbUnsendCountdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.fb-unsend-toast-self .fb-unsend-toast-progress {
+  background: linear-gradient(90deg, #3d7cff, #7b5cff);
+}
+
+.fb-unsend-toast:hover .fb-unsend-toast-progress {
+  animation-play-state: paused;
+}
+
+/* ===== Lightbox xem ảnh ===== */
+#fb-unsend-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 9, 12, 0.88);
+  backdrop-filter: blur(10px);
+  animation: fbUnsendFadeIn 0.2s ease-out;
+}
+
+.fb-unsend-lightbox-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.fb-unsend-lightbox-img {
+  max-width: 86vw;
+  max-height: 78vh;
+  border-radius: 14px;
+  object-fit: contain;
+  background: #15171c;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.55);
+}
+
+.fb-unsend-lightbox-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #15171c !important;
+  font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none !important;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.fb-unsend-lightbox-download:hover {
+  background: #e9ebef;
+  transform: translateY(-1px);
+}
+
+.fb-unsend-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.fb-unsend-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.fb-unsend-lightbox-close .fb-unsend-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* ===== Animation ===== */
+@keyframes fbUnsendSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fbUnsendFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fbUnsendCountdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fb-unsend-toast,
+  #fb-unsend-lightbox-overlay {
+    animation: none;
+  }
+}
+
+/* ===== Instagram Specific Styles ===== */
+.ig-unsend-restored-bubble {
+  border-radius: 22px !important;
+  border: 1px solid rgba(229, 56, 59, 0.45) !important;
+  background: rgba(229, 56, 59, 0.06) !important;
+  padding: 8px 14px !important;
+  margin: 4px 0 !important;
+  max-width: 80% !important;
+  display: inline-block !important;
+  box-sizing: border-box !important;
+}
+
+.ig-badge {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #e5383b !important;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.ig-unsend-toast {
+  border-radius: 16px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
+}
+
