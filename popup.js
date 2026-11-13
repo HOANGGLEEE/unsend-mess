@@ -1216,8 +1216,8 @@ function getDebugManifestCoverage() {
 }
 
 function downloadFallbackDebugJson(context = {}) {
-  const unsentKey = getStorageKeyUnsent();
-  const messagesKey = getStorageKeyMessages();
+  const unsentKey = 'fb_unsent_messages_v2';
+  const messagesKey = 'fb_captured_messages_v2';
   chrome.storage.local.get(
     [unsentKey, messagesKey, STORAGE_KEY_TOAST_ENABLED],
     function (res) {
@@ -1230,7 +1230,7 @@ function downloadFallbackDebugJson(context = {}) {
       const report = {
         schemaVersion: 3,
         exportedAt: new Date().toISOString(),
-        platform: currentPlatform,
+        platform: 'facebook',
         source: 'popup-storage-fallback',
         fallbackReason: context.reason || 'unknown',
         version: manifestCoverage.version || chrome.runtime.getManifest().version,
@@ -1263,7 +1263,7 @@ function downloadFallbackDebugJson(context = {}) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = (currentPlatform === 'instagram' ? 'ig' : 'fb') + '-unsend-debug-' + Date.now() + '.json';
+      a.download = 'fb-unsend-debug-' + Date.now() + '.json';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1282,13 +1282,8 @@ function exportDebugReport() {
     return;
   }
 
-  const isInstagram = currentPlatform === 'instagram';
-  const matchPatterns = isInstagram
-    ? ['*://*.instagram.com/*']
-    : FACEBOOK_MESSENGER_MATCH_PATTERNS;
-  const isSupportedUrl = isInstagram
-    ? (url) => /(^|\\.)instagram\\.com(\\/|$)/i.test(String(url || '').replace(/^https?:\\/\\//i, ''))
-    : isFacebookMessengerUrl;
+  const matchPatterns = FACEBOOK_MESSENGER_MATCH_PATTERNS;
+  const isSupportedUrl = isFacebookMessengerUrl;
 
   function sendDebugRequest(tab, context, searchOtherTabs) {
     if (!tab || !tab.id) {
