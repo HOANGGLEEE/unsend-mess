@@ -14,13 +14,13 @@
   </p>
 
   <p>
-    <a href="https://github.com/binhake/fb-unsend-viewer/stargazers"><img src="https://img.shields.io/github/stars/binhake/fb-unsend-viewer?style=social" alt="GitHub stars" /></a>
+    <a href="https://github.com/HOANGGLEEE/stargazers"><img src="https://img.shields.io/github/stars/binhake/fb-unsend-viewer?style=social" alt="GitHub stars" /></a>
   </p>
 
   <p>
     ⭐ <strong>Nếu thấy hữu ích, hãy cho repo 1 star để mình có động lực maintain tiếp nhé!</strong><br/>
     <em>If you find this useful, please give it a star ⭐</em><br/>
-    🐞 Gặp lỗi? <a href="https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml">Tạo issue</a> / Found a bug? <a href="https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml">Open an issue</a>
+    🐞 Gặp lỗi? <a href="https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml">Tạo issue</a> / Found a bug? <a href="https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml">Open an issue</a>
   </p>
 
   <p>
@@ -76,7 +76,7 @@ Bạn có thể cài đặt trên **Google Chrome**, **Microsoft Edge**, **Brave
 
 #### Cách 2: Dành cho nhà phát triển (Clone từ Git)
 ```bash
-git clone https://github.com/binhake/fb-unsend-viewer.git
+git clone https://github.com/HOANGGLEEE.git
 ```
 Sau đó vào `chrome://extensions/` → Bật **Developer mode** → Chọn **Load unpacked** và trỏ tới thư mục vừa clone.
 
@@ -101,7 +101,7 @@ File log chứa **nội dung các tin nhắn gần đây, tên người trong đ
 - Hoặc không đính kèm công khai: ghi trong issue là *"có file log, cần gửi riêng"*, mình sẽ liên hệ lại.
 
 **Bước 3. Tạo issue**
-1. Mở [**Issue mới**](https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml) (đã có sẵn mẫu báo lỗi, chỉ cần điền).
+1. Mở [**Issue mới**](https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml) (đã có sẵn mẫu báo lỗi, chỉ cần điền).
 2. Mô tả lỗi, các bước tái hiện, tick môi trường.
 3. **Kéo thả file `.json`** và ảnh chụp màn hình vào khung soạn thảo. Nếu GitHub không nhận file `.json` thì nén thành `.zip` rồi kéo vào.
 
@@ -166,7 +166,7 @@ Compatible with **Google Chrome**, **Microsoft Edge**, **Brave**, **Opera**, and
 
 #### Option 2: Clone via Git
 ```bash
-git clone https://github.com/binhake/fb-unsend-viewer.git
+git clone https://github.com/HOANGGLEEE.git
 ```
 Then navigate to `chrome://extensions/`, enable **Developer mode**, click **Load unpacked**, and select the cloned directory.
 
@@ -191,7 +191,7 @@ The log contains **recent message content, names of people in the chat, your Fac
 - Or don't attach it publicly: write *"I have a log, need to send it privately"* in the issue and I'll get back to you.
 
 **Step 3. Open an issue**
-1. Open a [**new issue**](https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml) (a bug report template is provided).
+1. Open a [**new issue**](https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml) (a bug report template is provided).
 2. Describe the bug, the steps to reproduce, and tick your environment.
 3. **Drag and drop the `.json` file** and your screenshots into the editor. If GitHub rejects `.json`, zip it first.
 
