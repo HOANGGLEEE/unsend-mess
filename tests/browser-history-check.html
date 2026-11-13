@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>History storage browser check</title>
+<body>Running isolated IndexedDB checks…</body>
+<script>
+  // This file uses its own origin/database; it never accesses installed extension history.
+  const nativeIDB = indexedDB;
+  const testDatabase = `unsend-history-check-${crypto.randomUUID()}`;
+  Object.defineProperty(globalThis, 'indexedDB', { value: { open: () => nativeIDB.open(testDatabase, 1) } });
+  const legacy = { fb_unsent_messages_v2: [{ messageId: 'old', text: 'old', attachments: ['data:image/png;base64,AQID'] }] };
+  chrome.storage = { local: {
+    async get(keys) { return Object.fromEntries(keys.filter((key) => key in legacy).map((key) => [key, legacy[key]])); },
+    async set() {},
+    async remove(keys) { keys.forEach((key) => delete legacy[key]); }
+  } };
+</script>
+<script src="../history-model.js"></script>
+<script src="../history-repository.js"></script>
+<script>
+  (async () => {
+    const key = 'fb_unsent_messages_v2';
+    const check = (condition, message) => { if (!condition) throw new Error(message); };
+    const migrated = await HistoryRepository.run({ type: 'HISTORY_READ', keys: [key] });
+    const id = migrated.collections[key].records[0].attachments[0];
+    check(HistoryModel.isImageRef(id), 'Legacy image was not moved to Blob storage');
+    check(!legacy[key], 'Legacy data removed before/after migration incorrectly');
+    const photo = await HistoryRepository.run({ type: 'HISTORY_IMAGES', ids: [id] });
+    check(photo.images[id] === 'data:image/png;base64,AQID', 'Stored photo did not round-trip');
+    await Promise.all(['tab-a', 'tab-b'].map((messageId) => HistoryRepository.run({
+      type: 'HISTORY_WRITE', patch: { [key]: [{ messageId, text: messageId, attachments: [] }] }, epochs: { [key]: 0 }
+    })));
+    const saved = await HistoryRepository.run({ type: 'HISTORY_READ', keys: [key] });
+    check(saved.collections[key].records.length === 3, 'Concurrent capture lost a message');
+    await HistoryRepository.run({ type: 'HISTORY_DELETE', key, ids: ['tab-a'] });
+    await HistoryRepository.run({ type: 'HISTORY_WRITE', patch: { [key]: [{ messageId: 'tab-a' }] }, epochs: { [key]: 0 } });
+    const deleted = await HistoryRepository.run({ type: 'HISTORY_READ', keys: [key] });
+    check(deleted.collections[key].records.length === 2, 'Stale snapshot resurrected deleted history');
+    document.body.textContent = 'PASS: native IndexedDB migration, photo round-trip, concurrent writes, stale delete protection';
+  })().catch((error) => { document.body.textContent = `FAIL: ${error.stack || error}`; });
+</script>

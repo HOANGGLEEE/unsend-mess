@@ -55,7 +55,7 @@
   - Lọc nhanh theo cuộc trò chuyện / nhóm chat, hoặc theo phân loại (*Tất cả*, *Người khác*, *Bạn gỡ*, *Có ảnh*).
   - Sao lưu (Export) và Khôi phục (Import) toàn bộ lịch sử qua tệp `.json`.
 - **Quyền riêng tư tuyệt đối (100% Offline / Local)**:
-  - Không máy chủ trung gian, không thu thập dữ liệu, không gửi bất kỳ thông tin nào ra bên ngoài. Toàn bộ dữ liệu chỉ nằm trong bộ nhớ trình duyệt (`chrome.storage.local`) trên máy của bạn.
+  - Không có máy chủ trung gian lưu lịch sử. Tin nhắn và ảnh được giữ trong IndexedDB của tiện ích trên máy; tùy chọn và thông báo thay đổi nhỏ nằm trong `chrome.storage.local`. Ảnh được tải trực tiếp từ CDN Facebook.
 
 ---
 
@@ -90,6 +90,14 @@ Sau đó vào `chrome://extensions/` → Bật **Developer mode** → Chọn **L
 - Quét lại khi ảnh tải xong, đổi `src`/`srcset` hoặc mạng trở lại. Lưu ngay phần dữ liệu đang chờ khi tab bị ẩn hoặc rời trang; việc đóng trình duyệt đột ngột vẫn có thể làm gián đoạn lượt tải/lưu.
 - Bộ đệm tin đã nhận giữ **500 tin gần nhất**. Tin chưa từng được ghi nhận, ảnh đã hết hạn hoặc đã bị gỡ trước khi tải xong có thể không khôi phục được. Cải tiến này tập trung vào ảnh; không lưu toàn bộ video/âm thanh thành tệp cục bộ.
 - Debug trực tiếp từ tab có thống kê `contentWorld.imageCache` và log `IMAGE-CACHE-FAILED`. Bản sửa có kiểm thử tự động, chưa được xác nhận bằng phiên chạy liên tục 24 giờ.
+
+### Lưu lịch sử từ nhiều tab và chuyển dữ liệu cũ
+
+- Các tab và popup gửi thay đổi tới service worker. Worker xếp hàng ghi và hợp nhất theo ID, giữ nội dung/ảnh đã có khi tab khác gửi bản cũ. Xóa lịch sử dùng thao tác riêng để tab cũ không thêm lại tin đã xóa.
+- Database IndexedDB `unsend-history` có hai kho: `collections` giữ nội dung và tham chiếu ảnh; `images` giữ Blob ảnh, dùng SHA-256 để tránh lưu trùng. Cập nhật chữ/tên không ghi lại dữ liệu ảnh. Ảnh không còn được bất kỳ bộ lịch sử nào tham chiếu sẽ được dọn trong cùng giao dịch.
+- Lần đọc lịch sử đầu tiên tự chuyển dữ liệu từ các khóa `fb_*_messages_v2` / `ig_*_messages_v2`. Chỉ gỡ bản cũ sau khi toàn bộ giao dịch IndexedDB hoàn tất; nếu chuyển thất bại, bản cũ vẫn được giữ để thử lại. Sao lưu JSON vẫn chứa ảnh đầy đủ để nhập lại trên bản cài khác.
+- Trước khi cập nhật nên xuất một bản sao lưu nếu cần quay lại phiên bản cũ. Sau đó **Reload tiện ích và F5 mọi tab Facebook/Messenger**. Dùng lại đúng tiện ích/thư mục đang cài; không gỡ rồi cài lại để cập nhật vì trình duyệt có thể xóa dữ liệu của tiện ích khi gỡ.
+- Kiểm thử: `npm.cmd ci` rồi `npm.cmd test`. `fake-indexeddb` chỉ là phụ thuộc kiểm thử, không được nạp vào extension. `npm.cmd run test:browser` kiểm tra IndexedDB thật bằng một phiên Chrome headless riêng, không truy cập tài khoản hay dữ liệu trình duyệt đang dùng; cần Node.js 22+ và Chrome ở đường dẫn mặc định trên Windows (hoặc biến `CHROME_PATH`).
 
 ### 🛠️ Báo lỗi & Xuất nhật ký gỡ lỗi (Debug Log)
 
@@ -154,7 +162,7 @@ Dự án thuộc quyền sở hữu trí tuệ và bản quyền của **[binhak
   - Filter by conversation/thread or category (*All*, *Others*, *Self*, *With Media*).
   - Full JSON **Export & Import** for easy backup and migration.
 - **100% Local & Private**:
-  - Zero external servers, zero analytics, zero tracking. All cached messages and media stay strictly inside your browser's local storage (`chrome.storage.local`).
+  - No intermediary history server. Messages and photos stay in the extension's IndexedDB; settings and small change notifications use `chrome.storage.local`. Photos are downloaded directly from Facebook's CDN.
 
 ---
 

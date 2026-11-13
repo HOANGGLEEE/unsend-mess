@@ -53,6 +53,9 @@ function createHarness(stored = {}, bridge = new Map()) {
     },
     clearTimeout: (id) => timers.delete(id)
   });
+  context.HistoryStore = context.chrome.storage.local;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'history-model.js'), 'utf8'), context);
+  context.HistoryStore.mergeLocal = (incoming, local) => context.HistoryModel.merge(incoming, local);
   vm.runInContext(persistence, context);
   return { context, stored, bridge, writes, advance(ms) {
     clock += ms;
@@ -118,4 +121,23 @@ test('hiding a tab flushes pending messages before the debounce expires', () => 
   assert.equal(h.stored.fb_captured_messages_v2[0].attachments[0], 'data:image/png;base64,AQID');
   h.advance(300);
   assert.equal(h.writes.length, 1, 'cancels the scheduled write');
+});
+
+test('messages arriving during asynchronous startup hydration are preserved', () => {
+  const h = createHarness();
+  let completeLoad;
+  h.context.HistoryStore.get = (_keys, callback) => { completeLoad = callback; };
+  h.context.loadFromStorage();
+  h.context.recentMessagesList.push({ messageId: 'new', text: 'arrived during load' });
+  h.context.unsentMessagesList.push({ messageId: 'new_unsent', text: 'removed during load', isUnsent: true });
+  completeLoad({
+    fb_captured_messages_v2: [{ messageId: 'old', text: 'stored earlier' }],
+    fb_unsent_messages_v2: [{ messageId: 'old_unsent', text: 'old removed', isUnsent: true }]
+  });
+  assert.equal(h.context.recentMessagesList.length, 2);
+  assert.equal(h.context.unsentMessagesList.length, 2);
+  h.context.saveToStorage();
+  h.advance(300);
+  assert.equal(h.stored.fb_captured_messages_v2.length, 2);
+  assert.equal(h.stored.fb_unsent_messages_v2.length, 2);
 });

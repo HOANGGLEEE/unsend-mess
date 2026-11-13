@@ -164,6 +164,9 @@ test('complete content script starts on Messenger and watches lazy image changes
     setTimeout(callback, delay) { timers.set(++timerId, { callback, delay }); return timerId; },
     clearTimeout(id) { timers.delete(id); }
   });
+  context.HistoryStore = { ...context.chrome.storage.local, onChanged: context.chrome.storage.onChanged };
+  vm.runInContext(fs.readFileSync(path.join(root, 'history-model.js'), 'utf8'), context);
+  context.HistoryStore.mergeLocal = (incoming, local) => context.HistoryModel.merge(incoming, local);
   vm.runInContext(content, context);
   const startup = Array.from(timers.values()).find((timer) => timer.delay === 1000);
   assert.ok(startup, 'full content script reaches observer startup');

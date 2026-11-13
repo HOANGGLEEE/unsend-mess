@@ -24,6 +24,19 @@
     let recentMessagesList = [];
     let unsentMessagesList = [];
 
+    HistoryStore.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+      if (changes[STORAGE_KEY_MESSAGES]?.newValue) {
+        recentMessagesList = HistoryStore.mergeLocal(changes[STORAGE_KEY_MESSAGES].newValue, recentMessagesList, changes[STORAGE_KEY_MESSAGES]).map(sanitizeRecord);
+      }
+      if (changes[STORAGE_KEY_UNSENT]?.newValue) {
+        unsentMessagesList = HistoryStore.mergeLocal(changes[STORAGE_KEY_UNSENT].newValue, unsentMessagesList, changes[STORAGE_KEY_UNSENT]).map(sanitizeRecord);
+      }
+      for (const record of [...recentMessagesList, ...unsentMessagesList]) {
+        if (record?.messageId) messagesById.set(record.messageId, record);
+      }
+    });
+
     function sanitizeRecord(rec) {
       if (!rec || typeof rec !== 'object') return null;
       return {
@@ -45,20 +58,20 @@
 
     try {
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-        chrome.storage.local.get(
+        HistoryStore.get(
           [STORAGE_KEY_MESSAGES, STORAGE_KEY_UNSENT, STORAGE_KEY_TOAST_ENABLED],
           (res) => {
             if (res[STORAGE_KEY_TOAST_ENABLED] !== undefined) {
               isToastEnabled = res[STORAGE_KEY_TOAST_ENABLED] !== false;
             }
             if (Array.isArray(res[STORAGE_KEY_MESSAGES])) {
-              recentMessagesList = res[STORAGE_KEY_MESSAGES].map(sanitizeRecord).filter(Boolean);
+              recentMessagesList = HistoryStore.mergeLocal(res[STORAGE_KEY_MESSAGES], recentMessagesList).map(sanitizeRecord).filter(Boolean);
               for (const m of recentMessagesList) {
                 if (m.messageId) messagesById.set(m.messageId, m);
               }
             }
             if (Array.isArray(res[STORAGE_KEY_UNSENT])) {
-              unsentMessagesList = res[STORAGE_KEY_UNSENT].map(sanitizeRecord).filter(Boolean);
+              unsentMessagesList = HistoryStore.mergeLocal(res[STORAGE_KEY_UNSENT], unsentMessagesList).map(sanitizeRecord).filter(Boolean);
               for (const m of unsentMessagesList) {
                 if (m.messageId) messagesById.set(m.messageId, m);
               }
@@ -71,7 +84,7 @@
     function persistMessages() {
       try {
         if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-          chrome.storage.local.set({
+          HistoryStore.set({
             [STORAGE_KEY_MESSAGES]: recentMessagesList.slice(-MAX_STORED_MESSAGES)
           });
         }
@@ -81,7 +94,7 @@
     function persistUnsent() {
       try {
         if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-          chrome.storage.local.set({
+          HistoryStore.set({
             [STORAGE_KEY_UNSENT]: unsentMessagesList.slice(-MAX_STORED_MESSAGES)
           });
         }
@@ -1321,14 +1334,14 @@
       detectCurrentUserIdentity();
       chrome.storage.local.remove(['fb_captured_messages_v1', 'fb_unsent_messages_v1']);
 
-      chrome.storage.local.get(
+      HistoryStore.get(
         [STORAGE_KEY_MESSAGES, STORAGE_KEY_UNSENT, STORAGE_KEY_CLEANED_FLAG, STORAGE_KEY_TOAST_ENABLED],
         (res) => {
           if (!isExtensionContextValid() || !res) return;
           isToastEnabled = res[STORAGE_KEY_TOAST_ENABLED] !== false;
           try {
             if (!res[STORAGE_KEY_CLEANED_FLAG]) {
-              chrome.storage.local.set({
+              HistoryStore.set({
                 [STORAGE_KEY_CLEANED_FLAG]: true
               });
             }
@@ -1352,9 +1365,10 @@
             } catch (_) {}
 
             let needsResave = orphanedRecent.length > 0 || orphanedUnsent.length > 0;
-            const rawStoredRecent = Array.isArray(res[STORAGE_KEY_MESSAGES])
-              ? [...res[STORAGE_KEY_MESSAGES]]
-              : [];
+            const rawStoredRecent = HistoryStore.mergeLocal(
+              Array.isArray(res[STORAGE_KEY_MESSAGES]) ? res[STORAGE_KEY_MESSAGES] : [],
+              recentMessagesList
+            );
             if (orphanedRecent.length > 0) {
               for (const oMsg of orphanedRecent) {
                 if (!oMsg || typeof oMsg !== 'object') continue;
@@ -1411,10 +1425,10 @@
               }
             }
 
-            const rawStoredUnsent = [
+            const rawStoredUnsent = HistoryStore.mergeLocal([
               ...orphanedUnsent,
               ...(Array.isArray(res[STORAGE_KEY_UNSENT]) ? res[STORAGE_KEY_UNSENT] : [])
-            ];
+            ], unsentMessagesList);
             if (rawStoredUnsent.length > 0) {
               const sanitizedUnsent = rawStoredUnsent
                 .map((msg) => {
@@ -1584,14 +1598,14 @@
       const cleanUnsent = unsentMessagesList.map(stripDomReferences);
       recentMessagesList = cleanRecent;
       unsentMessagesList = cleanUnsent;
-      chrome.storage.local.set(
+      HistoryStore.set(
         {
           [STORAGE_KEY_MESSAGES]: cleanRecent,
           [STORAGE_KEY_UNSENT]: cleanUnsent
         },
-        () => {
-          if (chrome.runtime?.lastError) {
-            dlog('STORAGE-ERROR', '#e84118', 'Lỗi khi lưu chrome.storage.local:', chrome.runtime.lastError);
+        (error) => {
+          if (error || chrome.runtime?.lastError) {
+            dlog('STORAGE-ERROR', '#e84118', 'Lỗi khi lưu lịch sử:', error || chrome.runtime.lastError);
             saveOrphanedBridgeToLocalStorage();
           } else {
             dlog('STORAGE-SAVED', '#00b894', {
@@ -2043,6 +2057,10 @@
       threadId: resolvedThreadId,
       text: cleanMergedText,
       attachments: combinedAttachments,
+      imageSources: {
+        ...existing?.imageSources, ...msg.imageSources,
+        ...Object.fromEntries([...cachedImageMap].filter(([rawSrc, dataUrl]) => !rawSrc.startsWith('data:') && combinedAttachments.includes(dataUrl)))
+      },
       personName: resolvedPerson,
       threadName: bestThread,
       senderName: resolvedSenderName,
@@ -2810,6 +2828,7 @@
     let changed = false;
     for (const record of records) {
       if (!record.attachments?.includes(rawSrc)) continue;
+      if (!rawSrc.startsWith('data:')) record.imageSources = { ...record.imageSources, [rawSrc]: dataUrl };
       record.attachments = [...new Set(record.attachments.map((url) => url === rawSrc ? dataUrl : url))];
       changed = true;
     }
@@ -5020,7 +5039,7 @@
 
   try {
     if (isExtensionContextValid() && chrome.storage?.onChanged) {
-      chrome.storage.onChanged.addListener((changes, areaName) => {
+      HistoryStore.onChanged.addListener((changes, areaName) => {
         if (!isExtensionContextValid() || areaName !== 'local') return;
         try {
           if (changes[STORAGE_KEY_TOAST_ENABLED]) {
@@ -5030,7 +5049,8 @@
           if (changes[STORAGE_KEY_MESSAGES]?.newValue) {
             const newMsgs = changes[STORAGE_KEY_MESSAGES].newValue;
             if (Array.isArray(newMsgs)) {
-              recentMessagesList = newMsgs.map((msg) => sanitizeStoredRecord(msg));
+              recentMessagesList = HistoryStore.mergeLocal(newMsgs, recentMessagesList, changes[STORAGE_KEY_MESSAGES])
+                .map((msg) => sanitizeStoredRecord(msg));
               for (const msg of recentMessagesList) {
                 if (msg.messageId) messagesById.set(msg.messageId, msg);
               }
@@ -5040,7 +5060,7 @@
           if (changes[STORAGE_KEY_UNSENT]?.newValue) {
             const newUnsent = changes[STORAGE_KEY_UNSENT].newValue;
             if (Array.isArray(newUnsent)) {
-              unsentMessagesList = newUnsent
+              unsentMessagesList = HistoryStore.mergeLocal(newUnsent, unsentMessagesList, changes[STORAGE_KEY_UNSENT])
                 .map((msg) => sanitizeStoredRecord(msg))
                 .filter((msg) => msg.text || (msg.attachments && msg.attachments.length > 0));
               for (const msg of unsentMessagesList) {

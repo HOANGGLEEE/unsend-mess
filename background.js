@@ -5,6 +5,15 @@
  * Removing author attribution ("binhake") or unauthorized commercial use is strictly prohibited.
  */
 // background.js - Service Worker quản lý Badge thông báo tin nhắn thu hồi & kiểm tra bản phát hành mới trên GitHub Releases
+importScripts('history-model.js', 'history-repository.js');
+
+// Accept writes from tabs opened before the upgrade until they are reloaded.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  const patch = Object.fromEntries(HistoryModel.keys.filter((key) => Array.isArray(changes[key]?.newValue))
+    .map((key) => [key, changes[key].newValue]));
+  if (Object.keys(patch).length) HistoryRepository.run({ type: 'HISTORY_LEGACY', patch }).catch(console.error);
+});
 
 const STORAGE_KEY_UNREAD_COUNT = 'fb_unread_unsent_count_v2';
 const STORAGE_KEY_IG_UNREAD_COUNT = 'ig_unread_unsent_count_v2';
@@ -204,6 +213,20 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) return;
+
+  if (['HISTORY_READ', 'HISTORY_IMAGES', 'HISTORY_WRITE', 'HISTORY_DELETE'].includes(message.type)) {
+    const isPopup = sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html');
+    const isPage = sender.id === chrome.runtime.id && /^https?:\/\/([a-z0-9-]+\.)*(facebook|messenger|instagram)\.com\//i.test(sender.url || '');
+    if ((!isPopup && !isPage) || ((message.type === 'HISTORY_DELETE' || message.restore) && !isPopup)) {
+      sendResponse({ ok: false, error: 'History operation is not allowed' });
+      return;
+    }
+    HistoryRepository.run(message).then(
+      (result) => sendResponse({ ok: true, ...result }),
+      (error) => sendResponse({ ok: false, error: error.message })
+    );
+    return true;
+  }
 
   if (message.type === 'CACHE_MESSAGE_IMAGE') {
     downloadImageForCache(message.url, sender.url || '').then(

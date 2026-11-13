@@ -52,6 +52,8 @@
         "*://*.messenger.com/*"
       ],
       "js": [
+        "history-model.js",
+        "history-client.js",
         "content.js"
       ],
       "css": [

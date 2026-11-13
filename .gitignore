@@ -9,3 +9,4 @@ fb-unsend-debug-*.json
 
 # Release packages
 *.zip
+node_modules/

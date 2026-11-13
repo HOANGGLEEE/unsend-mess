@@ -1044,14 +1044,16 @@ function refreshView() {
 }
 
 function removeUnsentMessage(messageId) {
-  appState.unsentMessages = appState.unsentMessages.filter(m => m.messageId !== messageId);
-  chrome.storage.local.set({ [getStorageKeyUnsent()]: appState.unsentMessages }, refreshView);
+  HistoryStore.removeUnsent(getStorageKeyUnsent(), [messageId], (error) => {
+    if (error) return;
+    loadPopupData(true);
+  });
 }
 
 function loadPopupData(isBackgroundUpdate = false) {
   const unsentKey = getStorageKeyUnsent();
   const messagesKey = getStorageKeyMessages();
-  chrome.storage.local.get([unsentKey, messagesKey, STORAGE_KEY_TOAST_ENABLED], function (res) {
+  HistoryStore.get([unsentKey, messagesKey, STORAGE_KEY_TOAST_ENABLED], function (res) {
     const rawUnsent = Array.isArray(res[unsentKey]) ? res[unsentKey] : [];
     const rawCaptured = Array.isArray(res[messagesKey]) ? res[messagesKey] : [];
     let unsentChanged = false;
@@ -1076,7 +1078,7 @@ function loadPopupData(isBackgroundUpdate = false) {
       const patch = {};
       if (unsentChanged) patch[unsentKey] = appState.unsentMessages;
       if (capturedChanged) patch[messagesKey] = appState.capturedMessages;
-      chrome.storage.local.set(patch);
+      HistoryStore.set(patch);
     }
 
     // Chưa từng lưu thì coi như đang bật
@@ -1105,7 +1107,7 @@ function loadPopupData(isBackgroundUpdate = false) {
 function exportBackupJson() {
   const unsentKey = getStorageKeyUnsent();
   const messagesKey = getStorageKeyMessages();
-  chrome.storage.local.get([unsentKey, messagesKey], function (res) {
+  HistoryStore.get([unsentKey, messagesKey], function (res) {
     const unsent = Array.isArray(res[unsentKey]) ? res[unsentKey] : [];
     const captured = Array.isArray(res[messagesKey]) ? res[messagesKey] : [];
 
@@ -1152,7 +1154,7 @@ function exportBackupJson() {
 function downloadFallbackDebugJson(connectionDiagnostics = {}) {
   const unsentKey = getStorageKeyUnsent();
   const messagesKey = getStorageKeyMessages();
-  chrome.storage.local.get(
+  HistoryStore.get(
     [unsentKey, messagesKey, STORAGE_KEY_TOAST_ENABLED],
     function (res) {
       const unsent = Array.isArray(res[unsentKey]) ? res[unsentKey] : [];
@@ -1387,25 +1389,27 @@ function handleImportFile(file) {
       const unsentKey = getStorageKeyUnsent();
       const messagesKey = getStorageKeyMessages();
 
-      chrome.storage.local.get([unsentKey, messagesKey], function (res) {
+      HistoryStore.get([unsentKey, messagesKey], function (res) {
         const currentUnsent = Array.isArray(res[unsentKey]) ? res[unsentKey] : [];
         const currentCaptured = Array.isArray(res[messagesKey]) ? res[messagesKey] : [];
 
         const unsentMerge = smartMergeRecords(currentUnsent, importedUnsent, true);
         const capturedMerge = smartMergeRecords(currentCaptured, importedCaptured, false);
 
-        chrome.storage.local.set(
+        HistoryStore.set(
           {
             [unsentKey]: unsentMerge.result,
             [messagesKey]: capturedMerge.result.slice(-2000),
             [STORAGE_KEY_CLEANED_FLAG]: true
           },
-          function () {
+          function (error) {
+            if (error) return;
             loadPopupData();
             showStatus(
               `Đã nhập ${unsentMerge.addedCount} tin mới, hợp nhất ${unsentMerge.mergedCount} tin trùng`
             );
-          }
+          },
+          { restore: true }
         );
       });
     } catch (_) {
@@ -1449,9 +1453,9 @@ function handleClearAllClick() {
 
 function clearAllUnsentMessages() {
   dom.confirmModal.hidden = true;
-  appState.unsentMessages = [];
-  chrome.storage.local.set({ [getStorageKeyUnsent()]: [] }, function () {
-    refreshView();
+  HistoryStore.removeUnsent(getStorageKeyUnsent(), undefined, function (error) {
+    if (error) return;
+    loadPopupData(true);
     showStatus(
       `Đã xóa toàn bộ lịch sử tin nhắn bị gỡ trên ${
         currentPlatform === 'instagram' ? 'Instagram' : 'Facebook'
@@ -1497,9 +1501,9 @@ function bindEvents() {
       const latestVer = dom.updateBanner?.dataset?.latestVersion || '';
       dom.updateBanner.hidden = true;
       if (latestVer && chrome?.storage?.local) {
-        chrome.storage.local.get([STORAGE_KEY_UPDATE_INFO], function (res) {
+        HistoryStore.get([STORAGE_KEY_UPDATE_INFO], function (res) {
           const prev = res?.[STORAGE_KEY_UPDATE_INFO] || {};
-          chrome.storage.local.set({
+          HistoryStore.set({
             [STORAGE_KEY_UPDATE_INFO]: {
               ...prev,
               dismissedVersion: latestVer
@@ -1533,7 +1537,7 @@ function bindEvents() {
 
   dom.toastToggle.addEventListener('change', function () {
     const enabled = dom.toastToggle.checked;
-    chrome.storage.local.set({ [STORAGE_KEY_TOAST_ENABLED]: enabled }, function () {
+    HistoryStore.set({ [STORAGE_KEY_TOAST_ENABLED]: enabled }, function () {
       showStatus(enabled ? 'Đã bật thông báo ở góc màn hình' : 'Đã tắt thông báo ở góc màn hình');
     });
   });
@@ -1567,7 +1571,7 @@ function bindEvents() {
     });
   }
 
-  chrome.storage.onChanged.addListener(function (changes, areaName) {
+  HistoryStore.onChanged.addListener(function (changes, areaName) {
     if (
       areaName === 'local' &&
       (changes[getStorageKeyUnsent()] ||
@@ -1717,7 +1721,7 @@ function checkUpdateFromPopup(manual = false) {
         .replace(/^[vV]+/, '');
       if (latestVer && isNewerVersion(latestVer, currentVer)) {
         // Nếu người dùng tự bấm kiểm tra thì bỏ trạng thái ẩn của bản đó để hiện lại banner
-        chrome.storage.local.set(
+        HistoryStore.set(
           {
             [STORAGE_KEY_UPDATE_INFO]: {
               ...info,
@@ -1738,6 +1742,9 @@ function checkUpdateFromPopup(manual = false) {
 
 function init() {
   cacheDom();
+  window.addEventListener('history-storage-error', (event) => {
+    showStatus(`Không lưu/đọc được lịch sử: ${event.detail}`, true);
+  });
   try {
     dom.versionTag.textContent = `v${chrome.runtime.getManifest().version}`;
   } catch (_) {}
@@ -1759,7 +1766,7 @@ function init() {
   }
 
   if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-    chrome.storage.local.get([STORAGE_KEY_UPDATE_INFO], function (res) {
+    HistoryStore.get([STORAGE_KEY_UPDATE_INFO], function (res) {
       renderUpdateState(res?.[STORAGE_KEY_UPDATE_INFO]);
       checkUpdateFromPopup(false);
     });
