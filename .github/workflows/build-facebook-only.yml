@@ -50,14 +50,13 @@ jobs:
               script["matches"] = ["*://*.facebook.com/*"]
 
           manifest_path.write_text(
-              json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n",
+              json.dumps(manifest, ensure_ascii=False, indent=2),
               encoding="utf-8"
           )
 
           popup_css = root / "popup.css"
           with popup_css.open("a", encoding="utf-8") as f:
-              f.write("\\n/* Facebook-only build: hide the inactive Instagram platform switch. */\\n")
-              f.write("#platform-ig-btn { display: none !important; }\\n")
+              f.write(" /* Facebook-only build: hide Instagram switch. */ #platform-ig-btn { display: none !important; } ")
           PY
 
           node -e "const m=require('./dist/FB-Unsend-Message-Viewer-Facebook/manifest.json'); if(m.host_permissions.some(x=>x.includes('instagram')) || m.content_scripts.some(s=>s.matches.some(x=>x.includes('instagram')))) process.exit(1); console.log('Manifest Facebook-only validation passed')"
