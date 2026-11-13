@@ -14,13 +14,13 @@
   </p>
 
   <p>
-    <a href="https://github.com/binhake/fb-unsend-viewer/stargazers"><img src="https://img.shields.io/github/stars/binhake/fb-unsend-viewer?style=social" alt="GitHub stars" /></a>
+    <a href="https://github.com/HOANGGLEEE/stargazers"><img src="https://img.shields.io/github/stars/binhake/fb-unsend-viewer?style=social" alt="GitHub stars" /></a>
   </p>
 
   <p>
     ⭐ <strong>Nếu thấy hữu ích, hãy cho repo 1 star để mình có động lực maintain tiếp nhé!</strong><br/>
     <em>If you find this useful, please give it a star ⭐</em><br/>
-    🐞 Gặp lỗi? <a href="https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml">Tạo issue</a> / Found a bug? <a href="https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml">Open an issue</a>
+    🐞 Gặp lỗi? <a href="https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml">Tạo issue</a> / Found a bug? <a href="https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml">Open an issue</a>
   </p>
 
   <p>
@@ -72,11 +72,11 @@ Bạn có thể cài đặt trên **Google Chrome**, **Microsoft Edge**, **Brave
    - **Brave**: `brave://extensions/`
 4. Bật công tắc **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
 5. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục vừa giải nén.
-6. Mở hoặc tải lại trang [facebook.com](https://www.facebook.com/) để tiện ích bắt đầu hoạt động.
+6. Mở hoặc tải lại [Messenger](https://www.messenger.com/) hoặc [Facebook Messages](https://www.facebook.com/messages/) để tiện ích bắt đầu hoạt động.
 
 #### Cách 2: Dành cho nhà phát triển (Clone từ Git)
 ```bash
-git clone https://github.com/binhake/fb-unsend-viewer.git
+git clone https://github.com/HOANGGLEEE.git
 ```
 Sau đó vào `chrome://extensions/` → Bật **Developer mode** → Chọn **Load unpacked** và trỏ tới thư mục vừa clone.
 
@@ -87,7 +87,7 @@ Sau đó vào `chrome://extensions/` → Bật **Developer mode** → Chọn **L
 Extension có sẵn phím tắt xuất file log để mình biết chính xác chuyện gì đã xảy ra. Gửi kèm file này trong issue thì lỗi sẽ được sửa nhanh hơn nhiều so với chỉ mô tả bằng lời.
 
 **Bước 1. Xuất file log ngay khi gặp lỗi**
-1. Ở **đúng tab Facebook vừa xảy ra lỗi** (đang mở đoạn chat có tin bị gỡ), **đừng F5**: log được giữ trong bộ nhớ của tab, tải lại trang là mất.
+1. Ở **đúng tab Messenger/Facebook vừa xảy ra lỗi** (đang mở đoạn chat có tin bị gỡ), **đừng F5**: log được giữ trong bộ nhớ của tab, tải lại trang là mất.
 2. Bấm chuột vào một chỗ trống trên trang để trang đang được chọn (không phải thanh địa chỉ).
 3. Nhấn **`Alt + Shift + D`**.
 4. Trình duyệt tải về tệp `fb-unsend-debug-<số>.json` (thường nằm trong thư mục **Downloads**).
@@ -101,7 +101,7 @@ File log chứa **nội dung các tin nhắn gần đây, tên người trong đ
 - Hoặc không đính kèm công khai: ghi trong issue là *"có file log, cần gửi riêng"*, mình sẽ liên hệ lại.
 
 **Bước 3. Tạo issue**
-1. Mở [**Issue mới**](https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml) (đã có sẵn mẫu báo lỗi, chỉ cần điền).
+1. Mở [**Issue mới**](https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml) (đã có sẵn mẫu báo lỗi, chỉ cần điền).
 2. Mô tả lỗi, các bước tái hiện, tick môi trường.
 3. **Kéo thả file `.json`** và ảnh chụp màn hình vào khung soạn thảo. Nếu GitHub không nhận file `.json` thì nén thành `.zip` rồi kéo vào.
 
@@ -162,11 +162,11 @@ Compatible with **Google Chrome**, **Microsoft Edge**, **Brave**, **Opera**, and
    - **Brave**: `brave://extensions/`
 4. Enable **Developer mode** in the top-right corner.
 5. Click **Load unpacked** and select the extracted folder.
-6. Open or refresh [facebook.com](https://www.facebook.com/) to start capturing messages.
+6. Open or refresh [Messenger](https://www.messenger.com/) or [Facebook Messages](https://www.facebook.com/messages/) to start capturing messages.
 
 #### Option 2: Clone via Git
 ```bash
-git clone https://github.com/binhake/fb-unsend-viewer.git
+git clone https://github.com/HOANGGLEEE.git
 ```
 Then navigate to `chrome://extensions/`, enable **Developer mode**, click **Load unpacked**, and select the cloned directory.
 
@@ -177,7 +177,7 @@ Then navigate to `chrome://extensions/`, enable **Developer mode**, click **Load
 The extension has a built-in shortcut that exports a debug log. Attaching it to your issue makes bugs much faster to fix than a description alone.
 
 **Step 1. Export the log right after the bug happens**
-1. Stay on **the same Facebook tab where the bug happened** and **do not refresh**: the log lives in the tab's memory and is lost on reload.
+1. Stay on **the same Messenger/Facebook tab where the bug happened** and **do not refresh**: the log lives in the tab's memory and is lost on reload.
 2. Click an empty spot on the page so the page (not the address bar) has focus.
 3. Press **`Alt + Shift + D`**.
 4. The browser downloads `fb-unsend-debug-<number>.json` (usually into your **Downloads** folder).
@@ -191,7 +191,7 @@ The log contains **recent message content, names of people in the chat, your Fac
 - Or don't attach it publicly: write *"I have a log, need to send it privately"* in the issue and I'll get back to you.
 
 **Step 3. Open an issue**
-1. Open a [**new issue**](https://github.com/binhake/fb-unsend-viewer/issues/new?template=bug_report.yml) (a bug report template is provided).
+1. Open a [**new issue**](https://github.com/HOANGGLEEE/issues/new?template=bug_report.yml) (a bug report template is provided).
 2. Describe the bug, the steps to reproduce, and tick your environment.
 3. **Drag and drop the `.json` file** and your screenshots into the editor. If GitHub rejects `.json`, zip it first.
 

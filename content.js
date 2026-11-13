@@ -555,6 +555,28 @@
   }
 
   const e2eeRevokeAliasMap = new Map();
+  const pendingUnsentEvents = new Map();
+  const PENDING_UNSENT_EVENT_TTL_MS = 45000;
+  const contentDiagnostics = {
+    initializedAt: new Date().toISOString(),
+    counters: {
+      mainEventsReceived: 0,
+      capturedEventsReceived: 0,
+      unsentEventsReceived: 0,
+      pendingUnsentQueued: 0,
+      pendingUnsentResolved: 0,
+      domScans: 0,
+      domScansWithoutRows: 0,
+      domUnsentRows: 0,
+      restoreHits: 0,
+      restoreMisses: 0,
+      storageWriteAttempts: 0,
+      storageWrites: 0,
+      storageErrors: 0
+    },
+    lastMainEventType: '',
+    lastActivityAt: Date.now()
+  };
 
   function isAuthoritativeMessageId(id) {
     if (!id || typeof id !== 'string') return false;
@@ -603,6 +625,80 @@
     if (/^\d{15,22}$/.test(trimmed)) return trimmed;
     const parts = extractE2EEParts(trimmed);
     return parts ? parts.stanzaId : '';
+  }
+
+  function buildPendingUnsentEventKeys(record) {
+    const keys = new Set();
+    const values = [
+      record?.messageId,
+      record?.rawMessageId,
+      record?.originalMessageId,
+      record?.revokeMessageId,
+      ...(Array.isArray(record?.altIds) ? record.altIds : [])
+    ];
+    for (const value of values) {
+      if (value === null || value === undefined) continue;
+      const raw = String(value).trim();
+      if (!raw) continue;
+      const canonical = resolveContentCanonicalId(raw);
+      if (canonical) {
+        keys.add(canonical);
+        const stanzaId = extractBareStanzaId(canonical);
+        if (stanzaId) keys.add(stanzaId);
+      }
+      if (/^\d{15,22}$/.test(raw)) keys.add(raw);
+    }
+    return [...keys];
+  }
+
+  function rememberPendingUnsentEvent(record) {
+    if (!record || typeof record !== 'object') return null;
+    const now = Date.now();
+    for (const [key, entry] of pendingUnsentEvents.entries()) {
+      if (!entry || now - entry.queuedAt > PENDING_UNSENT_EVENT_TTL_MS) {
+        pendingUnsentEvents.delete(key);
+      }
+    }
+    const keys = buildPendingUnsentEventKeys(record);
+    if (keys.length === 0) {
+      dlog('UNSENT-PENDING-REJECTED', '#e84118', { reason: 'no-matchable-id', messageId: record.messageId || '', rawMessageId: record.rawMessageId || '', source: record.source || '' });
+      return null;
+    }
+    const entry = { data: { ...record }, queuedAt: now };
+    for (const key of keys) pendingUnsentEvents.set(key, entry);
+    while (pendingUnsentEvents.size > 300) {
+      pendingUnsentEvents.delete(pendingUnsentEvents.keys().next().value);
+    }
+    contentDiagnostics.counters.pendingUnsentQueued++;
+    contentDiagnostics.lastActivityAt = now;
+    dlog('UNSENT-PENDING-WAIT', '#fbc531', {
+      messageId: record.messageId || '',
+      rawMessageId: record.rawMessageId || '',
+      keys,
+      source: record.source || 'MAIN',
+      queuedAt: now
+    });
+    return entry;
+  }
+
+  function takePendingUnsentEvent(record) {
+    const keys = buildPendingUnsentEventKeys(record);
+    let found = null;
+    for (const key of keys) {
+      const entry = pendingUnsentEvents.get(key);
+      if (entry && Date.now() - entry.queuedAt <= PENDING_UNSENT_EVENT_TTL_MS) {
+        found = entry;
+        break;
+      }
+    }
+    if (found) {
+      for (const [key, entry] of pendingUnsentEvents.entries()) {
+        if (entry === found) pendingUnsentEvents.delete(key);
+      }
+      return found;
+    }
+    for (const key of keys) pendingUnsentEvents.delete(key);
+    return null;
   }
 
   function isSameAuthoritativeRecordId(fiberId, rec) {
@@ -1583,6 +1679,8 @@
         }
         const cleanRecent = recentMessagesList.map(stripDomReferences);
         const cleanUnsent = unsentMessagesList.map(stripDomReferences);
+        contentDiagnostics.counters.storageWriteAttempts++;
+        contentDiagnostics.lastActivityAt = Date.now();
         recentMessagesList = cleanRecent;
         unsentMessagesList = cleanUnsent;
         chrome.storage.local.set(
@@ -1592,9 +1690,11 @@
           },
           () => {
             if (chrome.runtime?.lastError) {
+              contentDiagnostics.counters.storageErrors++;
               dlog('STORAGE-ERROR', '#e84118', 'Lỗi khi lưu chrome.storage.local:', chrome.runtime.lastError);
               saveOrphanedBridgeToLocalStorage();
             } else {
+              contentDiagnostics.counters.storageWrites++;
               dlog('STORAGE-SAVED', '#00b894', {
                 capturedCount: cleanRecent.length,
                 unsentCount: cleanUnsent.length
@@ -1666,8 +1766,44 @@
   function downloadDebugReport(mainDump = {}) {
     try {
       const report = {
+        schemaVersion: 3,
         exportedAt: new Date().toISOString(),
         url: location.href,
+        diagnostics: {
+          ...contentDiagnostics,
+          counters: { ...contentDiagnostics.counters },
+          pendingUnsentEvents: Array.from(new Set(pendingUnsentEvents.values())).map((entry) => ({
+            messageId: entry.data?.messageId || '',
+            rawMessageId: entry.data?.rawMessageId || '',
+            queuedAt: entry.queuedAt,
+            waitMs: Date.now() - entry.queuedAt,
+            source: entry.data?.source || 'MAIN'
+          })),
+          runtime: {
+            readyState: document.readyState,
+            hostname: location.hostname,
+            origin: location.origin,
+            isFacebookHost: location.hostname === 'facebook.com' || location.hostname.endsWith('.facebook.com'),
+            isMessengerHost: location.hostname === 'messenger.com' || location.hostname.endsWith('.messenger.com'),
+            extensionVersion: (() => {
+              try { return chrome.runtime.getManifest().version; } catch (_) { return ''; }
+            })(),
+            mainWorldDumpReceived: Boolean(mainDump && (mainDump.diagnostics || mainDump.mainLogs || mainDump.capturedMessages)),
+            mainWorldDumpKeys: Object.keys(mainDump || {}),
+            contentScriptMatches: (() => {
+              try {
+                return (chrome.runtime.getManifest().content_scripts || []).map((script) => ({
+                  world: script.world || 'ISOLATED',
+                  matches: script.matches || []
+                }));
+              } catch (_) { return []; }
+            })(),
+            extensionContextValid: isExtensionContextValid(),
+            chatRowCount: (() => {
+              try { return getActualChatRows().length; } catch (_) { return -1; }
+            })()
+          }
+        },
         userAgent: navigator.userAgent,
         identity: {
           currentUserId,
@@ -1696,7 +1832,12 @@
         a.remove();
         URL.revokeObjectURL(blobUrl);
       }, 500);
-    } catch (_) {}
+    } catch (err) {
+      dlog('DEBUG-EXPORT-ERROR', '#e84118', {
+        message: String(err?.message || err),
+        stack: err?.stack || ''
+      });
+    }
   }
 
   let debugExportFallbackTimer = null;
@@ -1705,8 +1846,9 @@
     if (debugExportFallbackTimer) clearTimeout(debugExportFallbackTimer);
     debugExportFallbackTimer = setTimeout(() => {
       debugExportFallbackTimer = null;
-      downloadDebugReport({ note: 'MAIN world did not respond within 600ms' });
-    }, 600);
+      dlog('DEBUG-EXPORT-MAIN-TIMEOUT', '#e84118', 'MAIN world chưa phản hồi sau 8 giây; xuất báo cáo dự phòng');
+      downloadDebugReport({ note: 'MAIN world did not respond within 8000ms' });
+    }, 8000);
     try {
       window.postMessage(
         {
@@ -1750,6 +1892,9 @@
     if (event.data.source !== 'FB_UNSEND_EXTENSION_MAIN') return;
 
     const { type, payload } = event.data;
+    contentDiagnostics.counters.mainEventsReceived++;
+    contentDiagnostics.lastMainEventType = type || '';
+    contentDiagnostics.lastActivityAt = Date.now();
     if (!payload) return;
 
     if (type === 'FB_MSG_CAPTURED') {
@@ -1911,7 +2056,11 @@
   }
 
   function handleCapturedMessage(msg) {
-    if (!msg.messageId) return;
+    contentDiagnostics.counters.capturedEventsReceived++;
+    if (!msg?.messageId) {
+      dlog('CAPTURE-EVENT-REJECTED', '#e84118', { reason: 'missing-message-id', source: msg?.source || '' });
+      return;
+    }
 
     detectCurrentUserIdentity();
     if (
@@ -2080,6 +2229,31 @@
     }
 
     saveToStorage();
+
+    const pendingUnsent = takePendingUnsentEvent(merged);
+    if (pendingUnsent) {
+      contentDiagnostics.counters.pendingUnsentResolved++;
+      dlog('UNSENT-PENDING-REPLAY', '#00b894', {
+        messageId: bestId,
+        waitMs: Date.now() - pendingUnsent.queuedAt,
+        hasText: Boolean(merged.text),
+        attachmentCount: merged.attachments?.length || 0
+      });
+      queueMicrotask(() => {
+        handleUnsentEvent({
+          ...pendingUnsent.data,
+          messageId: bestId,
+          rawMessageId: pendingUnsent.data.rawMessageId || pendingUnsent.data.messageId || '',
+          text: merged.text || pendingUnsent.data.text || '',
+          attachments: merged.attachments || pendingUnsent.data.attachments || [],
+          senderId: pendingUnsent.data.senderId || merged.senderId || '',
+          threadId: pendingUnsent.data.threadId || merged.threadId || '',
+          personName: pendingUnsent.data.personName || merged.personName || '',
+          threadName: pendingUnsent.data.threadName || merged.threadName || '',
+          timestamp: merged.timestamp || pendingUnsent.data.timestamp || Date.now()
+        });
+      });
+    }
   }
 
   function notifyUnreadBadge() {
@@ -2277,6 +2451,8 @@
   }
 
   function handleUnsentEvent(unsentData) {
+    contentDiagnostics.counters.unsentEventsReceived++;
+    contentDiagnostics.lastActivityAt = Date.now();
     dlog('UNSENT-EVENT', '#fdcb6e', 'Nhận sự kiện FB_MSG_UNSENT từ MAIN:', unsentData);
     detectCurrentUserIdentity();
     if (
@@ -2324,6 +2500,7 @@
     ]);
 
     if (!originalText && originalAttachments.length === 0) {
+      rememberPendingUnsentEvent(unsentData);
       dlog('UNSENT-EVENT-NO-TEXT-YET', '#fbc531', 'Sự kiện gỡ chưa tìm thấy nội dung theo ID, kích hoạt quét Fiber + DOM:', {
         messageId: unsentData.messageId,
         disappearedCount: recentlyDisappearedMessages.length
@@ -2401,8 +2578,13 @@
 
   function handleE2EERevokeResolved(payload) {
     if (!payload) return;
+    contentDiagnostics.counters.unsentEventsReceived++;
+    contentDiagnostics.lastActivityAt = Date.now();
     const revokedMsgId = payload.revokedMsgId || payload.revokeMsgId || '';
-    if (!revokedMsgId) return;
+    if (!revokedMsgId) {
+      dlog('E2EE-REVOKE-REJECTED', '#e84118', { reason: 'missing-revoke-message-id', payloadKeys: Object.keys(payload) });
+      return;
+    }
     const {
       originalMsgId,
       originalStanzaId,
@@ -2498,6 +2680,29 @@
         timestamp: aliased.timestamp
       });
     } else {
+      if (originalMsgId || originalStanzaId) {
+        handleUnsentEvent({
+          messageId: originalMsgId || originalStanzaId,
+          rawMessageId: revokedMsgId,
+          originalMessageId: originalMsgId || '',
+          revokeMessageId: revokedMsgId,
+          senderId: senderId || '',
+          threadId: threadId || '',
+          personName: payload.personName || '',
+          threadName: payload.threadName || '',
+          senderName: payload.senderName || '',
+          isSelf,
+          timestamp: timestampMs || Date.now(),
+          source: 'E2EE-REVOKE'
+        });
+      }
+      dlog('E2EE-REVOKE-NO-MATCH', '#e84118', {
+        revokedMsgId,
+        originalMsgId,
+        originalStanzaId,
+        recentCount: recentMessagesList.length,
+        disappearedCount: recentlyDisappearedMessages.length
+      });
       scheduleDomScan();
     }
   }
@@ -3560,8 +3765,12 @@
   }
 
   function scanChatMessagesInDom(specificRecord = null) {
+    contentDiagnostics.counters.domScans++;
     const chatRows = getActualChatRows();
-    if (chatRows.length === 0) return;
+    if (chatRows.length === 0) {
+      contentDiagnostics.counters.domScansWithoutRows++;
+      return;
+    }
 
     const now = Date.now();
     recentlyDisappearedMessages = recentlyDisappearedMessages.filter(
@@ -3606,6 +3815,7 @@
       rowEl.dataset.fbUnsendIsSelf = analysis.isSelf ? 'true' : 'false';
 
       if (analysis.isUnsentRow) {
+        contentDiagnostics.counters.domUnsentRows++;
         const unsentFiberId = getRowMessageId(rowEl);
         const unsentE2eeIds = extractPeerIdFromE2EEMsgId(unsentFiberId, analysis.isSelf);
         if (
@@ -4069,6 +4279,7 @@
           restored &&
           (restored.text || (restored.attachments && restored.attachments.length > 0))
         ) {
+          contentDiagnostics.counters.restoreHits++;
           dlog('RESTORE-HIT', '#00b894', `Khôi phục thành công dòng gỡ qua [${matchStrategy}]:`, {
             fiberId,
             text: restored.text,
@@ -4152,6 +4363,7 @@
           rowEl.dataset.fbUnsendMatchedId = syncedRecord.messageId;
         } else if (isNewlyUnsentRow && !rowEl.dataset.fbUnsendLoggedMiss) {
           rowEl.dataset.fbUnsendLoggedMiss = 'true';
+          contentDiagnostics.counters.restoreMisses++;
           dlog('RESTORE-MISS', '#d63031', 'Chưa tìm thấy dữ liệu khôi phục cho dòng thông báo gỡ:', {
             fiberId,
             noticeTextBeforeRestore,

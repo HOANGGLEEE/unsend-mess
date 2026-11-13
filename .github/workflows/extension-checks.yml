@@ -1,0 +1,37 @@
+name: Extension checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: JavaScript syntax checks
+        run: |
+          node --check background.js
+          node --check content.js
+          node --check injected.js
+          node --check popup.js
+      - name: Run test suite
+        run: node --test tests/*.test.js
+
+      - name: Package Facebook Messenger debug extension
+        run: |
+          zip -r fb-unsend-debug-${GITHUB_SHA}.zip \
+            manifest.json background.js content.js injected.js \
+            popup.html popup.js popup.css styles.css icons fonts README.md LICENSE
+
+      - name: Upload debug extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fb-unsend-debug-${{ github.sha }}
+          path: fb-unsend-debug-${{ github.sha }}.zip
+          retention-days: 14

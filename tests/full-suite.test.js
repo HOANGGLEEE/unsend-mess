@@ -15,7 +15,7 @@ test('calculateBadgeText aggregates unread counts from both platforms', () => {
   assert.strictEqual(calculateBadgeText(0, 7), '7');
 });
 
-test('Simulated Instagram message capture and unsend cycle', () => {
+test('Simulated Facebook message capture and unsend cycle', () => {
   const inMemoryStorage = {};
   const storage = {
     get: (keys, cb) => {
@@ -30,7 +30,7 @@ test('Simulated Instagram message capture and unsend cycle', () => {
   };
 
   const incomingIgMsg = {
-    platform: 'instagram',
+    platform: 'facebook',
     messageId: '3402823668417',
     threadId: 'th_ig_1',
     senderId: 'user_ig_1',
@@ -41,8 +41,8 @@ test('Simulated Instagram message capture and unsend cycle', () => {
   };
 
   // 1. Capture message
-  const MESSAGES_KEY = 'ig_captured_messages_v2';
-  const UNSENT_KEY = 'ig_unsent_messages_v2';
+  const MESSAGES_KEY = 'fb_captured_messages_v2';
+  const UNSENT_KEY = 'fb_unsent_messages_v2';
   inMemoryStorage[MESSAGES_KEY] = [incomingIgMsg];
   inMemoryStorage[UNSENT_KEY] = [];
 
