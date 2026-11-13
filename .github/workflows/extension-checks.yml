@@ -22,3 +22,16 @@ jobs:
           node --check popup.js
       - name: Run test suite
         run: node --test tests/*.test.js
+
+      - name: Package Facebook Messenger debug extension
+        run: |
+          zip -r fb-unsend-debug-${GITHUB_SHA}.zip \
+            manifest.json background.js content.js injected.js \
+            popup.html popup.js popup.css styles.css icons fonts README.md LICENSE
+
+      - name: Upload debug extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fb-unsend-debug-${{ github.sha }}
+          path: fb-unsend-debug-${{ github.sha }}.zip
+          retention-days: 14
