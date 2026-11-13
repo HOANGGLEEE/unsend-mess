@@ -558,8 +558,11 @@
     const queued = pendingUnsentEvents.splice(0);
     if (queued.length) {
       replayingStartupEvents = true;
-      for (const event of queued) handleUnsentEvent(event);
-      replayingStartupEvents = false;
+      try {
+        for (const event of queued) handleUnsentEvent(event);
+      } finally {
+        replayingStartupEvents = false;
+      }
     }
     dlog('HISTORY-READY', '#00b894', { reason, queuedEvents: queued.length,
       unsentCount: unsentMessagesList.length, capturedCount: recentMessagesList.length });
@@ -1546,7 +1549,10 @@
         },
         { hydrateImages: false }
       );
-    } catch (_) {}
+    } catch (error) {
+      dlog('STORAGE-LOAD-EXCEPTION', '#e84118', String(error));
+      finishHistoryLoad('storage-exception');
+    }
   }
 
   function saveOrphanedBridgeToLocalStorage() {
@@ -4969,7 +4975,8 @@
       document.body.appendChild(toastContainer);
     }
 
-    if (record.messageId && toastContainer.querySelector(`.fb-unsend-toast[data-fb-unsend-msg-id="${CSS.escape(record.messageId)}"]`)) {
+    if (record.messageId && Array.from(toastContainer.querySelectorAll('.fb-unsend-toast'))
+      .some((toast) => toast.dataset.fbUnsendMsgId === record.messageId)) {
       return;
     }
     while (toastContainer.querySelectorAll('.fb-unsend-toast').length >= 3) {
