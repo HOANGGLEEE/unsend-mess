@@ -72,7 +72,7 @@ Bạn có thể cài đặt trên **Google Chrome**, **Microsoft Edge**, **Brave
    - **Brave**: `brave://extensions/`
 4. Bật công tắc **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
 5. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục vừa giải nén.
-6. Mở hoặc tải lại trang [facebook.com](https://www.facebook.com/) để tiện ích bắt đầu hoạt động.
+6. Mở hoặc tải lại [Messenger](https://www.messenger.com/) hoặc [Facebook Messages](https://www.facebook.com/messages/) để tiện ích bắt đầu hoạt động.
 
 #### Cách 2: Dành cho nhà phát triển (Clone từ Git)
 ```bash
@@ -87,7 +87,7 @@ Sau đó vào `chrome://extensions/` → Bật **Developer mode** → Chọn **L
 Extension có sẵn phím tắt xuất file log để mình biết chính xác chuyện gì đã xảy ra. Gửi kèm file này trong issue thì lỗi sẽ được sửa nhanh hơn nhiều so với chỉ mô tả bằng lời.
 
 **Bước 1. Xuất file log ngay khi gặp lỗi**
-1. Ở **đúng tab Facebook vừa xảy ra lỗi** (đang mở đoạn chat có tin bị gỡ), **đừng F5**: log được giữ trong bộ nhớ của tab, tải lại trang là mất.
+1. Ở **đúng tab Messenger/Facebook vừa xảy ra lỗi** (đang mở đoạn chat có tin bị gỡ), **đừng F5**: log được giữ trong bộ nhớ của tab, tải lại trang là mất.
 2. Bấm chuột vào một chỗ trống trên trang để trang đang được chọn (không phải thanh địa chỉ).
 3. Nhấn **`Alt + Shift + D`**.
 4. Trình duyệt tải về tệp `fb-unsend-debug-<số>.json` (thường nằm trong thư mục **Downloads**).
@@ -162,7 +162,7 @@ Compatible with **Google Chrome**, **Microsoft Edge**, **Brave**, **Opera**, and
    - **Brave**: `brave://extensions/`
 4. Enable **Developer mode** in the top-right corner.
 5. Click **Load unpacked** and select the extracted folder.
-6. Open or refresh [facebook.com](https://www.facebook.com/) to start capturing messages.
+6. Open or refresh [Messenger](https://www.messenger.com/) or [Facebook Messages](https://www.facebook.com/messages/) to start capturing messages.
 
 #### Option 2: Clone via Git
 ```bash
@@ -177,7 +177,7 @@ Then navigate to `chrome://extensions/`, enable **Developer mode**, click **Load
 The extension has a built-in shortcut that exports a debug log. Attaching it to your issue makes bugs much faster to fix than a description alone.
 
 **Step 1. Export the log right after the bug happens**
-1. Stay on **the same Facebook tab where the bug happened** and **do not refresh**: the log lives in the tab's memory and is lost on reload.
+1. Stay on **the same Messenger/Facebook tab where the bug happened** and **do not refresh**: the log lives in the tab's memory and is lost on reload.
 2. Click an empty spot on the page so the page (not the address bar) has focus.
 3. Press **`Alt + Shift + D`**.
 4. The browser downloads `fb-unsend-debug-<number>.json` (usually into your **Downloads** folder).
