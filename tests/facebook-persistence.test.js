@@ -26,6 +26,7 @@ function createHarness(stored = {}, bridge = new Map()) {
     currentUserId: '', currentUserFullName: '', isToastEnabled: true,
     valid: true,
     isExtensionContextValid: () => context.valid,
+    finishHistoryLoad() {},
     detectCurrentUserIdentity() {}, scheduleDomScan() {}, dlog() {},
     queueImageCache() {},
     sanitizeStoredRecord: (record) => ({ ...record }),
