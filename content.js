@@ -1827,10 +1827,9 @@
     } else if (type === 'FB_E2EE_REVOKE_RESOLVED') {
       handleE2EERevokeResolved(payload);
     } else if (type === 'FB_WS_RECONNECTED') {
-      dlog('WS-RECONNECTED', '#00b894', 'Nhận tín hiệu kết nối lại WebSocket, quét lại DOM & Fiber');
-      scheduleDomScan();
-      setTimeout(scheduleDomScan, 500);
-      setTimeout(scheduleDomScan, 1500);
+      dlog('WS-RECONNECTED', '#00b894', 'Nhận tín hiệu kết nối lại WebSocket, quét DOM & Fiber có giới hạn');
+      scheduleDomScan(true);
+      setTimeout(() => scheduleDomScan(), 500);
     } else if (type === 'FB_MAIN_DEBUG_DUMP') {
       if (debugExportFallbackTimer) {
         clearTimeout(debugExportFallbackTimer);
@@ -5214,7 +5213,7 @@
         scheduleDomScan();
       });
 
-      window.addEventListener('focus', () => scheduleDomScan(true));
+      window.addEventListener('focus', () => scheduleDomScan());
 
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') flushPendingStorage();
