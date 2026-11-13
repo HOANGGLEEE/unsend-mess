@@ -1761,7 +1761,7 @@
   function downloadDebugReport(mainDump = {}) {
     try {
       const report = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         exportedAt: new Date().toISOString(),
         url: location.href,
         diagnostics: {
@@ -1776,6 +1776,23 @@
           })),
           runtime: {
             readyState: document.readyState,
+            hostname: location.hostname,
+            origin: location.origin,
+            isFacebookHost: /(^|\\.)facebook\\.com$/i.test(location.hostname),
+            isMessengerHost: /(^|\\.)messenger\\.com$/i.test(location.hostname),
+            extensionVersion: (() => {
+              try { return chrome.runtime.getManifest().version; } catch (_) { return ''; }
+            })(),
+            mainWorldDumpReceived: Boolean(mainDump && (mainDump.diagnostics || mainDump.mainLogs || mainDump.capturedMessages)),
+            mainWorldDumpKeys: Object.keys(mainDump || {}),
+            contentScriptMatches: (() => {
+              try {
+                return (chrome.runtime.getManifest().content_scripts || []).map((script) => ({
+                  world: script.world || 'ISOLATED',
+                  matches: script.matches || []
+                }));
+              } catch (_) { return []; }
+            })(),
             extensionContextValid: isExtensionContextValid(),
             chatRowCount: (() => {
               try { return getActualChatRows().length; } catch (_) { return -1; }
