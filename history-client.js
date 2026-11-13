@@ -169,7 +169,7 @@ globalThis.HistoryStore = (() => {
       const decoded = { ...changes };
       if (signal) {
         const previousEpochs = { ...epochs };
-        const { values, collections } = await read(signal.keys);
+        const { values, collections } = await read(signal.keys, true, { hydrateImages: false });
         for (const [key, entry] of Object.entries(collections)) {
           decoded[key] = { newValue: values[key], deletedIds: entry.deletedIds,
             cleared: previousEpochs[key] !== undefined && previousEpochs[key] !== entry.epoch };
