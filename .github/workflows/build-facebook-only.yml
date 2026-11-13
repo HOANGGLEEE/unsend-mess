@@ -1,0 +1,74 @@
+name: Build Facebook-only extension
+
+on:
+  push:
+    branches:
+      - chatgpt/facebook-only-build
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate JavaScript syntax
+        run: |
+          node --check background.js
+          node --check content.js
+          node --check injected.js
+          node --check popup.js
+
+      - name: Run repository tests (diagnostic)
+        continue-on-error: true
+        run: node --test tests/*.test.js
+
+      - name: Package Facebook-only extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist/FB-Unsend-Message-Viewer-Facebook
+
+          cp manifest.json background.js content.js injected.js popup.html popup.js popup.css styles.css README.md LICENSE dist/FB-Unsend-Message-Viewer-Facebook/
+          cp -R icons dist/FB-Unsend-Message-Viewer-Facebook/
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("dist/FB-Unsend-Message-Viewer-Facebook")
+          manifest_path = root / "manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+          manifest["host_permissions"] = ["*://*.facebook.com/*"]
+          for script in manifest.get("content_scripts", []):
+              script["matches"] = ["*://*.facebook.com/*"]
+
+          manifest_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n",
+              encoding="utf-8"
+          )
+
+          popup_css = root / "popup.css"
+          with popup_css.open("a", encoding="utf-8") as f:
+              f.write("\\n/* Facebook-only build: hide the inactive Instagram platform switch. */\\n")
+              f.write("#platform-ig-btn { display: none !important; }\\n")
+          PY
+
+          node -e "const m=require('./dist/FB-Unsend-Message-Viewer-Facebook/manifest.json'); if(m.host_permissions.some(x=>x.includes('instagram')) || m.content_scripts.some(s=>s.matches.some(x=>x.includes('instagram')))) process.exit(1); console.log('Manifest Facebook-only validation passed')"
+
+          cd dist
+          zip -qr ../fb-unsend-viewer-facebook-only-v1.2.4.zip FB-Unsend-Message-Viewer-Facebook
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fb-unsend-viewer-facebook-only-v1.2.4
+          path: fb-unsend-viewer-facebook-only-v1.2.4.zip
+          if-no-files-found: error
+          retention-days: 14
