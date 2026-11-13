@@ -469,6 +469,21 @@
   const INITIAL_SYNC_GRACE_MS = 6000;
 
   const capturedMessages = new Map();
+  const pendingUnsendSignals = new Map();
+  const PENDING_UNSEND_TTL_MS = 45000;
+  const mainDiagnostics = {
+    initializedAt: new Date().toISOString(),
+    hooks: { textDecoder: false, webSocket: false, xhr: false, define: false },
+    counters: {
+      bridgeEventsSent: 0, wsCreated: 0, wsOpened: 0, wsClosed: 0,
+      wsFramesReceived: 0, wsDecodedFrames: 0, wsRelevantFrames: 0,
+      xhrRequests: 0, procedureCalls: 0,
+      captureAttempts: 0, captureAccepted: 0, captureRejected: 0,
+      unsendSignals: 0, unsendPending: 0, unsendMatched: 0,
+      unsendEmitted: 0, e2eeRevokeEvents: 0
+    },
+    lastActivityAt: Date.now()
+  };
   const messageMetaMap = new Map();
   const pendingVaultMessages = new Map();
   const aliasIdMap = new Map();
@@ -705,6 +720,7 @@
   };
 
   const origTextDecoderDecode = TextDecoder.prototype.decode;
+  mainDiagnostics.hooks.textDecoder = true;
   const utf8Decoder = new TextDecoder('utf-8', { fatal: false });
 
   function safeDecodeBuffer(buf) {
@@ -1040,6 +1056,8 @@
 
   function emitToContentScript(eventType, payload) {
     try {
+      mainDiagnostics.counters.bridgeEventsSent++;
+      mainDiagnostics.lastActivityAt = Date.now();
       window.postMessage(
         {
           source: 'FB_UNSEND_EXTENSION_MAIN',
@@ -1048,7 +1066,9 @@
         },
         '*'
       );
-    } catch (_) {}
+    } catch (err) {
+      dlog('BRIDGE-EMIT-ERROR', '#e84118', { eventType, error: String(err?.message || err) });
+    }
   }
 
   function resolveCanonicalMessageId(id) {
@@ -1180,7 +1200,67 @@
     };
   }
 
+  function buildPendingUnsendSignalKeys(messageId, altIds = [], rawMessageId = '') {
+    const keys = new Set();
+    for (const value of [messageId, rawMessageId, ...(Array.isArray(altIds) ? altIds : [])]) {
+      if (value === null || value === undefined) continue;
+      const raw = String(value).trim();
+      if (!raw) continue;
+      const canonical = resolveCanonicalMessageId(raw);
+      if (canonical) {
+        keys.add(canonical);
+        const ids = extractIdsFromE2EEMsgId(canonical);
+        if (ids.stanzaId) keys.add(ids.stanzaId);
+      }
+      if (/^\d{15,22}$/.test(raw)) keys.add(raw);
+    }
+    return [...keys];
+  }
+
+  function rememberPendingUnsendSignal(messageId, extraInfo = {}) {
+    const now = Date.now();
+    for (const [key, entry] of pendingUnsendSignals.entries()) {
+      if (!entry || now - entry.queuedAt > PENDING_UNSEND_TTL_MS) pendingUnsendSignals.delete(key);
+    }
+    const entry = {
+      messageId: String(messageId || ''),
+      extraInfo: { ...extraInfo },
+      queuedAt: now
+    };
+    const keys = buildPendingUnsendSignalKeys(messageId, extraInfo.altIds || [], extraInfo.rawMessageId || '');
+    for (const key of keys) pendingUnsendSignals.set(key, entry);
+    while (pendingUnsendSignals.size > 300) {
+      pendingUnsendSignals.delete(pendingUnsendSignals.keys().next().value);
+    }
+    mainDiagnostics.counters.unsendPending++;
+    dlog('UNSENT-PENDING', '#fbc531', {
+      messageId, keys, source: extraInfo.source || 'internal', queuedAt: now
+    });
+    return entry;
+  }
+
+  function takePendingUnsendSignal(messageId, altIds = []) {
+    const keys = buildPendingUnsendSignalKeys(messageId, altIds);
+    let found = null;
+    for (const key of keys) {
+      const entry = pendingUnsendSignals.get(key);
+      if (entry && Date.now() - entry.queuedAt <= PENDING_UNSEND_TTL_MS) {
+        found = entry;
+        break;
+      }
+    }
+    if (found) {
+      for (const [key, entry] of pendingUnsendSignals.entries()) {
+        if (entry === found) pendingUnsendSignals.delete(key);
+      }
+      return found;
+    }
+    for (const key of keys) pendingUnsendSignals.delete(key);
+    return null;
+  }
+
   function registerCapturedMessage(msgData) {
+    mainDiagnostics.counters.captureAttempts++;
     let {
       messageId,
       altIds,
@@ -1195,12 +1275,20 @@
       isSelf,
       allowHistoricalCapture
     } = msgData;
-    if (!messageId) return;
+    if (!messageId) {
+      mainDiagnostics.counters.captureRejected++;
+      dlog('CAPTURE-REJECTED', '#e84118', { reason: 'missing-message-id', source });
+      return;
+    }
     if (allowHistoricalCapture) {
       if (!timestamp || typeof timestamp !== 'number' || Date.now() - timestamp > 7 * 86400 * 1000) {
+        mainDiagnostics.counters.captureRejected++;
+        dlog('CAPTURE-REJECTED', '#e84118', { reason: 'historical-window', messageId, timestamp, source });
         return;
       }
     } else if (isOldHistoricalTimestamp(timestamp)) {
+      mainDiagnostics.counters.captureRejected++;
+      dlog('CAPTURE-REJECTED', '#e84118', { reason: 'old-or-invalid-timestamp', messageId, timestamp, source });
       return;
     }
 
@@ -1291,7 +1379,11 @@
     ) {
       capturedMessages.delete(e2eeIds.stanzaId);
     }
-    if (!cleanText && cleanAttachments.length === 0) return;
+    if (!cleanText && cleanAttachments.length === 0) {
+      mainDiagnostics.counters.captureRejected++;
+      dlog('CAPTURE-REJECTED', '#e84118', { reason: 'empty-text-and-media', messageId, source });
+      return;
+    }
 
     const isAuthoritativeModule =
       typeof source === 'string' && /^module:LS(Upsert|DeleteThenInsert|Insert)Message/i.test(source);
@@ -1351,6 +1443,8 @@
     };
 
     capturedMessages.set(messageId, updatedRecord);
+    mainDiagnostics.counters.captureAccepted++;
+    mainDiagnostics.lastActivityAt = Date.now();
 
     if (isActuallyNew) {
       dlog('CAPTURED', '#4cd137', {
@@ -1362,9 +1456,28 @@
       });
       emitToContentScript('FB_MSG_CAPTURED', updatedRecord);
     }
+
+    const pendingSignal = takePendingUnsendSignal(messageId, altIds || []);
+    if (pendingSignal) {
+      mainDiagnostics.counters.unsendMatched++;
+      dlog('UNSENT-PENDING-RESOLVED', '#00b894', {
+        messageId,
+        source: pendingSignal.extraInfo?.source || 'unknown',
+        waitMs: Date.now() - pendingSignal.queuedAt,
+        hasText: Boolean(updatedRecord.text),
+        attachmentCount: updatedRecord.attachments?.length || 0
+      });
+      queueMicrotask(() => {
+        triggerMessageUnsent(messageId, {
+          ...pendingSignal.extraInfo,
+          source: pendingSignal.extraInfo?.source || 'pending-unsend-signal'
+        });
+      });
+    }
   }
 
   function triggerMessageUnsent(rawMessageId, extraInfo = {}) {
+    mainDiagnostics.counters.unsendSignals++;
     const messageId = resolveCanonicalMessageId(rawMessageId);
     if (!messageId) return;
 
@@ -1401,6 +1514,10 @@
     }
 
     if (!existing || (!existing.text && (!existing.attachments || existing.attachments.length === 0))) {
+      rememberPendingUnsendSignal(messageId, {
+        ...extraInfo,
+        rawMessageId: String(rawMessageId || '')
+      });
       dlog('UNSENT-SIGNAL-ONLY', '#fbc531', 'Phát hiện lệnh gỡ nhưng MAIN chưa có text, chuyển tín hiệu sang CONTENT:', {
         rawMessageId,
         resolvedId: messageId,
@@ -1440,6 +1557,8 @@
     };
 
     capturedMessages.set(messageId, record);
+    mainDiagnostics.counters.unsendMatched++;
+    mainDiagnostics.counters.unsendEmitted++;
 
     dlog('UNSENT-HIT', '#e84118', 'Bắt được sự kiện gỡ tin nhắn từ MAIN world:', record);
     emitToContentScript('FB_MSG_UNSENT', record);
@@ -1502,6 +1621,7 @@
   // ============================================================================
   function inspectInternalProcedureCall(moduleName, args, returnValue) {
     if (!args) return;
+    mainDiagnostics.counters.procedureCalls++;
     if (/InsertNewMessageRange/i.test(moduleName)) return;
 
     if (/^(LSVerifyContactRowExists|LSUpdateOrInsertContact|LSUpsertContact)(\.|$)/i.test(moduleName)) {
@@ -2521,6 +2641,13 @@
       }
 
       if (revokeObj || revokedStanzaId) {
+        mainDiagnostics.counters.e2eeRevokeEvents++;
+        dlog('E2EE-REVOKE-DETECTED', '#e84118', {
+          revokeMessageId: fullMsgId,
+          originalStanzaId: revokedStanzaId,
+          threadId: cleanThreadId,
+          hasRevokePayload: Boolean(revokeObj)
+        });
         const originalMsgId =
           revokedStanzaId && rawThreadId ? `${rawThreadId}.${revokedStanzaId}` : '';
         if (originalMsgId && originalMsgId !== fullMsgId) {
@@ -2788,6 +2915,7 @@
         currentDefFunc = wrapDefineFn(newFn);
       }
     });
+    mainDiagnostics.hooks.define = true;
   } catch (_) {}
 
   // ============================================================================
@@ -3218,6 +3346,8 @@
   }
 
   function handleWebSocketFrame(data, wsUrl = '') {
+    mainDiagnostics.counters.wsFramesReceived++;
+    mainDiagnostics.lastActivityAt = Date.now();
     try {
       let decoded = '';
       let byteLen = 0;
@@ -3236,6 +3366,7 @@
       }
 
       if (decoded) {
+        mainDiagnostics.counters.wsDecodedFrames++;
         const isAfterInit = Date.now() - PAGE_LOAD_TIME > INITIAL_SYNC_GRACE_MS;
         const hasUnsupportedOrAttachment =
           decoded.includes('unsupported') ||
@@ -3272,9 +3403,20 @@
           decoded.includes('markMessageUnsent') ||
           isUnsendNoticeText(decoded))
       ) {
+        mainDiagnostics.counters.wsRelevantFrames++;
+        dlog('WS-RELEVANT-FRAME', '#00cec9', {
+          url: String(wsUrl || '').slice(0, 180),
+          byteLen,
+          decodedLength: decoded.length,
+          hasMessageId: /mid\.\$|wmid\.|otid\./.test(decoded),
+          hasUnsendMarker: /unsent|revoke|markMessageUnsent|deleteThenInsertMessage/i.test(decoded),
+          hasAttachmentMarker: /insertAttachment|insertBlobAttachment|insertXmaAttachment|view_once|ephemeral/i.test(decoded)
+        });
         extractJsonObjectsFromString(decoded);
       }
-    } catch (_) {}
+    } catch (err) {
+      dlog('WS-FRAME-ERROR', '#e84118', String(err?.message || err));
+    }
   }
 
   const origWsSend = OriginalWebSocket.prototype.send;
@@ -3308,6 +3450,7 @@
   };
 
   if (window.XMLHttpRequest) {
+    mainDiagnostics.hooks.xhr = true;
     const origXhrOpen = XMLHttpRequest.prototype.open;
     const origXhrSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function (method, url) {
@@ -3316,6 +3459,8 @@
       return origXhrOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function (body) {
+      mainDiagnostics.counters.xhrRequests++;
+      mainDiagnostics.lastActivityAt = Date.now();
       try {
         const url = this.__fbUnsendUrl || '';
         const bodyStr = typeof body === 'string' ? body : '';
@@ -3374,7 +3519,9 @@
     };
   }
 
+  mainDiagnostics.hooks.webSocket = true;
   window.WebSocket = function (url, protocols) {
+    mainDiagnostics.counters.wsCreated++;
     const ws =
       protocols !== undefined
         ? new OriginalWebSocket(url, protocols)
@@ -3383,11 +3530,13 @@
     dlog('WS-NEW', '#00b894', 'Facebook tạo kết nối WebSocket mới:', url);
 
     ws.addEventListener('open', () => {
+      mainDiagnostics.counters.wsOpened++;
       dlog('WS-OPEN', '#00b894', 'Kết nối WebSocket đã mở:', url);
       emitToContentScript('FB_WS_RECONNECTED', { url, time: Date.now() });
     });
 
     ws.addEventListener('close', (ev) => {
+      mainDiagnostics.counters.wsClosed++;
       dlog('WS-CLOSE', '#d63031', 'Kết nối WebSocket bị đóng:', {
         url,
         code: ev.code,
@@ -3930,6 +4079,18 @@
           };
         } catch (_) {}
         emitToContentScript('FB_MAIN_DEBUG_DUMP', {
+          diagnostics: {
+            ...mainDiagnostics,
+            hooks: { ...mainDiagnostics.hooks },
+            counters: { ...mainDiagnostics.counters }
+          },
+          pendingUnsendSignals: Array.from(new Set(pendingUnsendSignals.values())).map((entry) => ({
+            messageId: entry.messageId,
+            queuedAt: entry.queuedAt,
+            waitMs: Date.now() - entry.queuedAt,
+            source: entry.extraInfo?.source || 'unknown',
+            hasNotice: Boolean(entry.extraInfo?.unsendNotice)
+          })),
           mainLogs: mainLogBuffer,
           capturedMessages: Array.from(capturedMessages.values()).slice(-200).map((m) => serializeForLog(m, 0)),
           messageMetaMap: Array.from(messageMetaMap.entries()).slice(-200),
