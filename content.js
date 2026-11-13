@@ -1333,15 +1333,8 @@
           try {
             if (!res[STORAGE_KEY_CLEANED_FLAG]) {
               chrome.storage.local.set({
-                [STORAGE_KEY_MESSAGES]: [],
-                [STORAGE_KEY_UNSENT]: [],
                 [STORAGE_KEY_CLEANED_FLAG]: true
               });
-              recentMessagesList = [];
-              unsentMessagesList = [];
-              messagesById.clear();
-              scheduleDomScan();
-              return;
             }
 
             let orphanedRecent = [];
@@ -1571,8 +1564,10 @@
       saveOrphanedBridgeToLocalStorage();
       return;
     }
-    if (saveTimeout) clearTimeout(saveTimeout);
+    // Keep the pending write: continuous captures must not postpone persistence.
+    if (saveTimeout !== null) return;
     saveTimeout = setTimeout(() => {
+      saveTimeout = null;
       if (!isExtensionContextValid()) {
         saveOrphanedBridgeToLocalStorage();
         return;
