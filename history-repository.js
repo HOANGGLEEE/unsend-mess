@@ -2,6 +2,8 @@
 globalThis.HistoryRepository = (() => {
   let database;
   let queue = Promise.resolve();
+  let cachedEntries = null;
+  let entriesLoad = null;
   const request = (req) => new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -134,13 +136,26 @@ globalThis.HistoryRepository = (() => {
     await chrome.storage.local.remove(HistoryModel.keys);
     return entries;
   }
+  async function getEntries() {
+    if (cachedEntries) return cachedEntries;
+    if (!entriesLoad) {
+      entriesLoad = migrate().then((entries) => {
+        cachedEntries = entries;
+        return entries;
+      }).catch((error) => {
+        entriesLoad = null;
+        throw error;
+      });
+    }
+    return entriesLoad;
+  }
   async function notify(keys) {
     try {
       await chrome.storage.local.set({ unsend_history_revision: { keys, token: crypto.randomUUID() } });
     } catch (error) { console.error('History saved; change notification failed', error); }
   }
   async function handle(message) {
-    const entries = await migrate();
+    const entries = await getEntries();
     if (message.type === 'HISTORY_LEGACY') {
       message = { ...message, type: 'HISTORY_WRITE', epochs: Object.fromEntries(HistoryModel.keys.map((key) => [key, 0])) };
     }
@@ -186,7 +201,15 @@ globalThis.HistoryRepository = (() => {
         entries[key] = entry;
         if (JSON.stringify(entry) !== previous) changed.push(key);
       }
-      if (changed.length) await commit(entries, prepared.images);
+      if (changed.length) {
+        try {
+          await commit(entries, prepared.images);
+        } catch (error) {
+          cachedEntries = null;
+          entriesLoad = null;
+          throw error;
+        }
+      }
     } else if (message.type === 'HISTORY_DELETE') {
       const key = message.key;
       if (!HistoryModel.keys.includes(key) || !key.includes('_unsent_')) throw new Error('Invalid delete collection');
@@ -197,7 +220,13 @@ globalThis.HistoryRepository = (() => {
       entry.records = HistoryModel.merge([], entry.records, entry.deletedIds);
       if (!message.ids) entry.epoch++;
       entries[key] = entry;
-      await commit(entries, new Map());
+      try {
+        await commit(entries, new Map());
+      } catch (error) {
+        cachedEntries = null;
+        entriesLoad = null;
+        throw error;
+      }
       changed.push(key);
     } else { throw new Error('Unknown history operation'); }
     if (changed.length) await notify(changed);
