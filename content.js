@@ -549,7 +549,10 @@
   let historyReadyFallbackTimer = null;
 
   function finishHistoryLoad(reason = 'storage') {
-    if (historyReady) return;
+    if (historyReady) {
+      if (reason === 'storage') scheduleDomScan(true);
+      return;
+    }
     historyReady = true;
     if (historyReadyFallbackTimer) {
       clearTimeout(historyReadyFallbackTimer);
