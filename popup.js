@@ -1149,24 +1149,109 @@ function exportBackupJson() {
   });
 }
 
-function downloadFallbackDebugJson() {
+const FACEBOOK_MESSENGER_MATCH_PATTERNS = [
+  '*://*.facebook.com/*',
+  '*://*.messenger.com/*'
+];
+
+function isFacebookMessengerUrl(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return (
+      hostname === 'facebook.com' ||
+      hostname.endsWith('.facebook.com') ||
+      hostname === 'messenger.com' ||
+      hostname.endsWith('.messenger.com')
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function getSafeDebugTabSummary(tab) {
+  if (!tab) return null;
+  try {
+    const parsed = new URL(tab.url || '');
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    let pathPrefix = '/';
+    if (parts[0] === 'messages' || parts[0] === 't') {
+      pathPrefix = '/' + parts[0] + '/*';
+    } else if (parts[0]) {
+      pathPrefix = '/' + parts[0];
+    }
+    return {
+      id: Number.isInteger(tab.id) ? tab.id : null,
+      hostname: parsed.hostname,
+      origin: parsed.origin,
+      pathPrefix,
+      status: tab.status || ''
+    };
+  } catch (_) {
+    return {
+      id: Number.isInteger(tab.id) ? tab.id : null,
+      hostname: '',
+      origin: '',
+      pathPrefix: '',
+      status: tab.status || ''
+    };
+  }
+}
+
+function getDebugManifestCoverage() {
+  try {
+    const manifest = chrome.runtime.getManifest();
+    return {
+      version: manifest.version || '',
+      hostPermissions: manifest.host_permissions || [],
+      contentScripts: (manifest.content_scripts || []).map((script) => ({
+        js: script.js || [],
+        matches: script.matches || [],
+        runAt: script.run_at || '',
+        world: script.world || 'ISOLATED'
+      }))
+    };
+  } catch (err) {
+    return { error: String(err?.message || err) };
+  }
+}
+
+function downloadFallbackDebugJson(context = {}) {
   const unsentKey = getStorageKeyUnsent();
   const messagesKey = getStorageKeyMessages();
   chrome.storage.local.get(
     [unsentKey, messagesKey, STORAGE_KEY_TOAST_ENABLED],
     function (res) {
+      const storageError = chrome.runtime.lastError
+        ? chrome.runtime.lastError.message
+        : '';
       const unsent = Array.isArray(res[unsentKey]) ? res[unsentKey] : [];
       const captured = Array.isArray(res[messagesKey]) ? res[messagesKey] : [];
+      const manifestCoverage = getDebugManifestCoverage();
       const report = {
+        schemaVersion: 3,
         exportedAt: new Date().toISOString(),
         platform: currentPlatform,
         source: 'popup-storage-fallback',
-        version: chrome.runtime.getManifest().version,
+        fallbackReason: context.reason || 'unknown',
+        version: manifestCoverage.version || chrome.runtime.getManifest().version,
         userAgent: navigator.userAgent,
         isToastEnabled: res[STORAGE_KEY_TOAST_ENABLED] !== false,
+        diagnostics: {
+          extensionId: chrome.runtime.id || '',
+          requestError: context.error || '',
+          activeTab: getSafeDebugTabSummary(context.activeTab),
+          targetTab: getSafeDebugTabSummary(context.targetTab),
+          candidateTabCount: Number(context.candidateTabCount) || 0,
+          activeTabSupported: Boolean(context.activeTab && isFacebookMessengerUrl(context.activeTab.url)),
+          contentScriptReachable: false,
+          manifest: manifestCoverage,
+          storageError
+        },
         unsentCount: unsent.length,
         capturedCount: captured.length,
         contentWorld: {
+          available: false,
+          reason: 'Content script did not respond. See diagnostics.fallbackReason and diagnostics.manifest.',
           unsentMessagesList: unsent,
           recentMessagesListTail: captured.slice(-150)
         }
@@ -1178,7 +1263,7 @@ function downloadFallbackDebugJson() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${currentPlatform === 'instagram' ? 'ig' : 'fb'}-unsend-debug-${Date.now()}.json`;
+      a.download = (currentPlatform === 'instagram' ? 'ig' : 'fb') + '-unsend-debug-' + Date.now() + '.json';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1186,55 +1271,94 @@ function downloadFallbackDebugJson() {
         URL.revokeObjectURL(url);
       }, 1500);
 
-      showStatus('Đã tải tệp Debug (dữ liệu lưu trữ)');
+      showStatus('Đã tải Debug dự phòng: ' + (context.reason || 'không rõ nguyên nhân'));
     }
   );
 }
 
 function exportDebugReport() {
   if (!chrome.tabs || typeof chrome.tabs.query !== 'function') {
-    downloadFallbackDebugJson();
+    downloadFallbackDebugJson({ reason: 'tabs-api-unavailable' });
     return;
   }
 
-  const matchPattern =
-    currentPlatform === 'instagram' ? '*://*.instagram.com/*' : '*://*.facebook.com/*';
+  const isInstagram = currentPlatform === 'instagram';
+  const matchPatterns = isInstagram
+    ? ['*://*.instagram.com/*']
+    : FACEBOOK_MESSENGER_MATCH_PATTERNS;
+  const isSupportedUrl = isInstagram
+    ? (url) => /(^|\\.)instagram\\.com(\\/|$)/i.test(String(url || '').replace(/^https?:\\/\\//i, ''))
+    : isFacebookMessengerUrl;
+
+  function sendDebugRequest(tab, context, searchOtherTabs) {
+    if (!tab || !tab.id) {
+      downloadFallbackDebugJson({ ...context, reason: 'target-tab-missing' });
+      return;
+    }
+    chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_DEBUG_EXPORT' }, function (resp) {
+      const error = chrome.runtime.lastError ? chrome.runtime.lastError.message : '';
+      if (error || !resp || !resp.ok) {
+        const failedContext = {
+          ...context,
+          targetTab: tab,
+          error: error || 'Content script returned no successful response'
+        };
+        if (searchOtherTabs) {
+          queryOtherMatchingTabs(tab.id, {
+            ...failedContext,
+            reason: 'active-tab-content-script-unavailable'
+          });
+        } else {
+          downloadFallbackDebugJson({
+            ...failedContext,
+            reason: 'content-script-unavailable'
+          });
+        }
+      } else {
+        showStatus('Đã gửi yêu cầu xuất Debug từ tab Messenger/Facebook');
+      }
+    });
+  }
+
+  function queryOtherMatchingTabs(excludeTabId, context) {
+    chrome.tabs.query({ url: matchPatterns }, function (matchedTabs) {
+      const queryError = chrome.runtime.lastError ? chrome.runtime.lastError.message : '';
+      const candidates = (matchedTabs || []).filter(
+        (tab) => tab && tab.id && tab.id !== excludeTabId
+      );
+      const targetTab = candidates[0];
+      if (!targetTab) {
+        downloadFallbackDebugJson({
+          ...context,
+          reason: context.reason || 'no-matching-facebook-messenger-tab',
+          error: context.error || queryError,
+          candidateTabCount: (matchedTabs || []).length
+        });
+        return;
+      }
+      sendDebugRequest(
+        targetTab,
+        { ...context, targetTab, candidateTabCount: (matchedTabs || []).length },
+        false
+      );
+    });
+  }
 
   chrome.tabs.query({ active: true, currentWindow: true }, function (activeTabs) {
-    const activeTab = (activeTabs || []).find((t) => t && t.id);
-    const tryFallbackTabs = function () {
-      chrome.tabs.query({ url: matchPattern }, function (matchedTabs) {
-        const targetTab = (matchedTabs || []).find((t) => t && t.id);
-        if (!targetTab) {
-          downloadFallbackDebugJson();
-          return;
-        }
-        chrome.tabs.sendMessage(targetTab.id, { type: 'TRIGGER_DEBUG_EXPORT' }, function (resp) {
-          if (chrome.runtime.lastError || !resp || !resp.ok) {
-            downloadFallbackDebugJson();
-          } else {
-            showStatus('Đã tải tệp chẩn đoán lỗi (Debug JSON)');
-          }
-        });
-      });
-    };
+    const queryError = chrome.runtime.lastError ? chrome.runtime.lastError.message : '';
+    const activeTab = (activeTabs || []).find((tab) => tab && tab.id);
+    const baseContext = { activeTab, error: queryError };
 
-    if (
-      activeTab &&
-      (!activeTab.url ||
-        (currentPlatform === 'instagram'
-          ? /instagram\.com/i.test(activeTab.url)
-          : /facebook\.com/i.test(activeTab.url)))
-    ) {
-      chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_DEBUG_EXPORT' }, function (resp) {
-        if (chrome.runtime.lastError || !resp || !resp.ok) {
-          tryFallbackTabs();
-        } else {
-          showStatus('Đã tải tệp chẩn đoán lỗi (Debug JSON)');
-        }
-      });
+    if (activeTab && isSupportedUrl(activeTab.url)) {
+      sendDebugRequest(activeTab, baseContext, true);
     } else {
-      tryFallbackTabs();
+      queryOtherMatchingTabs(
+        activeTab && activeTab.id ? activeTab.id : null,
+        {
+          ...baseContext,
+          reason: activeTab ? 'active-tab-not-supported-domain' : 'no-active-tab'
+        }
+      );
     }
   });
 }
