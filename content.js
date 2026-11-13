@@ -1783,8 +1783,8 @@
             readyState: document.readyState,
             hostname: location.hostname,
             origin: location.origin,
-            isFacebookHost: /(^|\\.)facebook\\.com$/i.test(location.hostname),
-            isMessengerHost: /(^|\\.)messenger\\.com$/i.test(location.hostname),
+            isFacebookHost: location.hostname === 'facebook.com' || location.hostname.endsWith('.facebook.com'),
+            isMessengerHost: location.hostname === 'messenger.com' || location.hostname.endsWith('.messenger.com'),
             extensionVersion: (() => {
               try { return chrome.runtime.getManifest().version; } catch (_) { return ''; }
             })(),
