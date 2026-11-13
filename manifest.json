@@ -16,7 +16,10 @@
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "*://*.facebook.com/*"
+    "*://*.facebook.com/*",
+    "*://*.messenger.com/*",
+    "https://*.fbcdn.net/*",
+    "https://*.fbsbx.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -34,7 +37,8 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.facebook.com/*"
+        "*://*.facebook.com/*",
+        "*://*.messenger.com/*"
       ],
       "js": [
         "injected.js"
@@ -44,7 +48,8 @@
     },
     {
       "matches": [
-        "*://*.facebook.com/*"
+        "*://*.facebook.com/*",
+        "*://*.messenger.com/*"
       ],
       "js": [
         "content.js"

@@ -27,6 +27,7 @@ function createHarness(stored = {}, bridge = new Map()) {
     valid: true,
     isExtensionContextValid: () => context.valid,
     detectCurrentUserIdentity() {}, scheduleDomScan() {}, dlog() {},
+    queueImageCache() {},
     sanitizeStoredRecord: (record) => ({ ...record }),
     stripDomReferences: ({ rowEl, chatContainer, ...record }) => record,
     isTempDomId: (id) => id.startsWith('dom_'),
@@ -106,4 +107,15 @@ test('pending save falls back to the bridge when the extension context expires',
   assert.equal(h.writes.length, 0);
   const recovered = JSON.parse(h.bridge.get('fb_unsend_orphaned_bridge_v1'));
   assert.equal(recovered.unsent[0].text, 'Keep this message');
+});
+
+test('hiding a tab flushes pending messages before the debounce expires', () => {
+  const h = createHarness();
+  h.context.recentMessagesList.push({ messageId: 'image_1', attachments: ['data:image/png;base64,AQID'] });
+  h.context.saveToStorage();
+  h.context.flushPendingStorage();
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.stored.fb_captured_messages_v2[0].attachments[0], 'data:image/png;base64,AQID');
+  h.advance(300);
+  assert.equal(h.writes.length, 1, 'cancels the scheduled write');
 });

@@ -1149,7 +1149,7 @@ function exportBackupJson() {
   });
 }
 
-function downloadFallbackDebugJson() {
+function downloadFallbackDebugJson(connectionDiagnostics = {}) {
   const unsentKey = getStorageKeyUnsent();
   const messagesKey = getStorageKeyMessages();
   chrome.storage.local.get(
@@ -1157,11 +1157,15 @@ function downloadFallbackDebugJson() {
     function (res) {
       const unsent = Array.isArray(res[unsentKey]) ? res[unsentKey] : [];
       const captured = Array.isArray(res[messagesKey]) ? res[messagesKey] : [];
+      const manifest = chrome.runtime.getManifest();
       const report = {
         exportedAt: new Date().toISOString(),
         platform: currentPlatform,
         source: 'popup-storage-fallback',
-        version: chrome.runtime.getManifest().version,
+        version: manifest.version,
+        connectionDiagnostics,
+        hostPermissions: manifest.host_permissions,
+        contentScripts: manifest.content_scripts,
         userAgent: navigator.userAgent,
         isToastEnabled: res[STORAGE_KEY_TOAST_ENABLED] !== false,
         unsentCount: unsent.length,
@@ -1186,53 +1190,71 @@ function downloadFallbackDebugJson() {
         URL.revokeObjectURL(url);
       }, 1500);
 
-      showStatus('Đã tải tệp Debug (dữ liệu lưu trữ)');
+      showStatus('Không kết nối được script trên trang. Đã tải Debug dự phòng; hãy tải lại tiện ích và trang chat.', true);
     }
   );
 }
 
 function exportDebugReport() {
+  const diagnostics = { attempts: [] };
   if (!chrome.tabs || typeof chrome.tabs.query !== 'function') {
-    downloadFallbackDebugJson();
+    downloadFallbackDebugJson({ reason: 'tabs-api-unavailable' });
     return;
   }
 
-  const matchPattern =
-    currentPlatform === 'instagram' ? '*://*.instagram.com/*' : '*://*.facebook.com/*';
+  const matchPatterns = currentPlatform === 'instagram'
+    ? ['*://*.instagram.com/*']
+    : ['*://*.facebook.com/*', '*://*.messenger.com/*'];
 
   chrome.tabs.query({ active: true, currentWindow: true }, function (activeTabs) {
+    if (chrome.runtime.lastError) {
+      diagnostics.activeTabError = chrome.runtime.lastError.message;
+    }
     const activeTab = (activeTabs || []).find((t) => t && t.id);
+    diagnostics.activeTabUrl = activeTab?.url || '';
     const tryFallbackTabs = function () {
-      chrome.tabs.query({ url: matchPattern }, function (matchedTabs) {
-        const targetTab = (matchedTabs || []).find((t) => t && t.id);
-        if (!targetTab) {
-          downloadFallbackDebugJson();
-          return;
+      chrome.tabs.query({ url: matchPatterns }, function (matchedTabs) {
+        if (chrome.runtime.lastError) {
+          diagnostics.tabQueryError = chrome.runtime.lastError.message;
         }
-        chrome.tabs.sendMessage(targetTab.id, { type: 'TRIGGER_DEBUG_EXPORT' }, function (resp) {
-          if (chrome.runtime.lastError || !resp || !resp.ok) {
-            downloadFallbackDebugJson();
-          } else {
-            showStatus('Đã tải tệp chẩn đoán lỗi (Debug JSON)');
+        const targets = (matchedTabs || []).filter((t) => t && t.id && t.id !== attemptedActiveId);
+        function tryNextTab(index) {
+          if (index >= targets.length) {
+            diagnostics.reason = diagnostics.attempts.length ? 'content-script-unreachable' : 'no-matching-tab';
+            downloadFallbackDebugJson(diagnostics);
+            return;
           }
-        });
+          requestExport(targets[index], () => tryNextTab(index + 1));
+        }
+        tryNextTab(0);
       });
     };
+    let attemptedActiveId = null;
+    function requestExport(targetTab, onFailure) {
+      chrome.tabs.sendMessage(targetTab.id, { type: 'TRIGGER_DEBUG_EXPORT' }, function (resp) {
+        const error = chrome.runtime.lastError?.message;
+        if (error || !resp || !resp.ok) {
+          diagnostics.attempts.push({
+            tabId: targetTab.id,
+            url: targetTab.url || '',
+            error: error || 'Content script returned no successful response'
+          });
+          onFailure();
+        } else {
+          showStatus('Đã tải tệp chẩn đoán lỗi (Debug JSON)');
+        }
+      });
+    }
 
     if (
       activeTab &&
       (!activeTab.url ||
         (currentPlatform === 'instagram'
           ? /instagram\.com/i.test(activeTab.url)
-          : /facebook\.com/i.test(activeTab.url)))
+          : /^https?:\/\/([a-z0-9-]+\.)*(facebook|messenger)\.com\//i.test(activeTab.url)))
     ) {
-      chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_DEBUG_EXPORT' }, function (resp) {
-        if (chrome.runtime.lastError || !resp || !resp.ok) {
-          tryFallbackTabs();
-        } else {
-          showStatus('Đã tải tệp chẩn đoán lỗi (Debug JSON)');
-        }
-      });
+      attemptedActiveId = activeTab.id;
+      requestExport(activeTab, tryFallbackTabs);
     } else {
       tryFallbackTabs();
     }

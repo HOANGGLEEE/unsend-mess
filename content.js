@@ -716,7 +716,8 @@
     const valid = [];
     for (const rawUrl of attachments) {
       if (!rawUrl || typeof rawUrl !== 'string') continue;
-      const url = isDashMpdXmlString(rawUrl) ? extractDashMpdVideoUrl(rawUrl) : rawUrl;
+      const resolvedUrl = isDashMpdXmlString(rawUrl) ? extractDashMpdVideoUrl(rawUrl) : rawUrl;
+      const url = cachedImageMap.get(resolvedUrl) || resolvedUrl;
       if (!url || typeof url !== 'string' || isDashMpdXmlString(url)) continue;
       if (
         url.includes('/messaging/lightspeed/media_fallback/') ||
@@ -735,11 +736,6 @@
       ? valid.filter((u) => !isDashStreamVideoUrl(u))
       : valid;
 
-    const dataImages = dedupedVideos.filter((u) => u.startsWith('data:image/'));
-    if (dataImages.length > 0) {
-      const nonImages = dedupedVideos.filter((u) => getAttachmentMediaType(u) !== 'image');
-      return [...dataImages, ...nonImages];
-    }
     return dedupedVideos;
   }
 
@@ -1564,44 +1560,51 @@
       saveOrphanedBridgeToLocalStorage();
       return;
     }
+    for (const record of [...recentMessagesList, ...unsentMessagesList]) {
+      for (const url of record.attachments || []) queueImageCache(url);
+    }
     // Keep the pending write: continuous captures must not postpone persistence.
     if (saveTimeout !== null) return;
-    saveTimeout = setTimeout(() => {
-      saveTimeout = null;
-      if (!isExtensionContextValid()) {
-        saveOrphanedBridgeToLocalStorage();
-        return;
+    saveTimeout = setTimeout(flushPendingStorage, 300);
+  }
+
+  function flushPendingStorage() {
+    if (saveTimeout === null) return;
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+    if (!isExtensionContextValid()) {
+      saveOrphanedBridgeToLocalStorage();
+      return;
+    }
+    try {
+      if (recentMessagesList.length > MAX_STORED_MESSAGES) {
+        recentMessagesList = recentMessagesList.slice(-MAX_STORED_MESSAGES);
       }
-      try {
-        if (recentMessagesList.length > MAX_STORED_MESSAGES) {
-          recentMessagesList = recentMessagesList.slice(-MAX_STORED_MESSAGES);
-        }
-        const cleanRecent = recentMessagesList.map(stripDomReferences);
-        const cleanUnsent = unsentMessagesList.map(stripDomReferences);
-        recentMessagesList = cleanRecent;
-        unsentMessagesList = cleanUnsent;
-        chrome.storage.local.set(
-          {
-            [STORAGE_KEY_MESSAGES]: cleanRecent,
-            [STORAGE_KEY_UNSENT]: cleanUnsent
-          },
-          () => {
-            if (chrome.runtime?.lastError) {
-              dlog('STORAGE-ERROR', '#e84118', 'Lỗi khi lưu chrome.storage.local:', chrome.runtime.lastError);
-              saveOrphanedBridgeToLocalStorage();
-            } else {
-              dlog('STORAGE-SAVED', '#00b894', {
-                capturedCount: cleanRecent.length,
-                unsentCount: cleanUnsent.length
-              });
-            }
+      const cleanRecent = recentMessagesList.map(stripDomReferences);
+      const cleanUnsent = unsentMessagesList.map(stripDomReferences);
+      recentMessagesList = cleanRecent;
+      unsentMessagesList = cleanUnsent;
+      chrome.storage.local.set(
+        {
+          [STORAGE_KEY_MESSAGES]: cleanRecent,
+          [STORAGE_KEY_UNSENT]: cleanUnsent
+        },
+        () => {
+          if (chrome.runtime?.lastError) {
+            dlog('STORAGE-ERROR', '#e84118', 'Lỗi khi lưu chrome.storage.local:', chrome.runtime.lastError);
+            saveOrphanedBridgeToLocalStorage();
+          } else {
+            dlog('STORAGE-SAVED', '#00b894', {
+              capturedCount: cleanRecent.length,
+              unsentCount: cleanUnsent.length
+            });
           }
-        );
-      } catch (err) {
-        dlog('STORAGE-EXCEPTION', '#e84118', 'Exception trong saveToStorage:', err);
-        saveOrphanedBridgeToLocalStorage();
-      }
-    }, 300);
+        }
+      );
+    } catch (err) {
+      dlog('STORAGE-EXCEPTION', '#e84118', 'Exception trong saveToStorage:', err);
+      saveOrphanedBridgeToLocalStorage();
+    }
   }
 
   function requestMainWorldFiberScan() {
@@ -1671,6 +1674,13 @@
         },
         mainWorld: mainDump,
         contentWorld: {
+          imageCache: {
+            cachedUrls: cachedImageMap.size,
+            memoryBytes: cachedImageBytes,
+            activeDownloads: activeImageDownloads,
+            queued: [...imageCacheJobs.values()].filter((job) => !job.pending && job.attempts < 3).length,
+            failed: [...imageCacheJobs.values()].filter((job) => job.attempts >= 3 && !job.pending).length
+          },
           contentLogs: contentLogBuffer,
           unsentMessagesList: unsentMessagesList.map((m) => serializeForLog(m, 0)),
           recentMessagesListTail: recentMessagesList.slice(-120).map((m) => serializeForLog(m, 0)),
@@ -2778,6 +2788,79 @@
   }
 
   const cachedImageMap = new Map();
+  let cachedImageBytes = 0;
+  const imageCacheJobs = new Map();
+  let activeImageDownloads = 0;
+
+  function rememberCachedImage(rawSrc, dataUrl) {
+    cachedImageBytes -= (cachedImageMap.get(rawSrc)?.length || 0) * 2;
+    cachedImageMap.set(rawSrc, dataUrl);
+    cachedImageBytes += dataUrl.length * 2;
+    while (cachedImageMap.size > 128 || cachedImageBytes > 16 * 1024 * 1024) {
+      const oldest = cachedImageMap.keys().next().value;
+      cachedImageBytes -= cachedImageMap.get(oldest).length * 2;
+      cachedImageMap.delete(oldest);
+    }
+    // Replace only this URL: a cached photo must never erase other photos in an album.
+    const records = new Set([
+      ...recentMessagesList, ...unsentMessagesList, ...messagesById.values(),
+      ...getActualChatRows().map((row) => domRowMessages.get(row)).filter(Boolean),
+      ...visibleMessagesSnapshot.values()
+    ]);
+    let changed = false;
+    for (const record of records) {
+      if (!record.attachments?.includes(rawSrc)) continue;
+      record.attachments = [...new Set(record.attachments.map((url) => url === rawSrc ? dataUrl : url))];
+      changed = true;
+    }
+    if (changed) saveToStorage();
+    scheduleDomScan();
+  }
+
+  function queueImageCache(url) {
+    if (typeof url !== 'string' || getAttachmentMediaType(url) !== 'image' ||
+        !/^https:\/\/([a-z0-9-]+\.)*(fbcdn\.net|fbsbx\.com)\//i.test(url) ||
+        cachedImageMap.has(url) || imageCacheJobs.has(url) || !isExtensionContextValid()) return;
+    // shortcut: cap queued URLs per tab; revisit if legitimate bursts exceed 500 images.
+    if (imageCacheJobs.size >= 500) {
+      for (const [failedUrl, job] of imageCacheJobs) {
+        if (!job.pending && job.attempts >= 3) { imageCacheJobs.delete(failedUrl); break; }
+      }
+      if (imageCacheJobs.size >= 500) return;
+    }
+    imageCacheJobs.set(url, { attempts: 0, pending: false, retryAt: 0 });
+    drainImageCache();
+  }
+
+  function drainImageCache() {
+    if (!isExtensionContextValid()) return;
+    for (const [url, job] of imageCacheJobs) {
+      if (activeImageDownloads >= 3) break;
+      if (job.pending || job.attempts >= 3 || job.retryAt > Date.now()) continue;
+      job.pending = true;
+      job.attempts++;
+      activeImageDownloads++;
+      const finish = (response, error) => {
+        activeImageDownloads--;
+        job.pending = false;
+        if (!error && response?.ok && /^data:image\/(jpeg|png|webp|gif|avif);base64,/.test(response.dataUrl)) {
+          imageCacheJobs.delete(url);
+          rememberCachedImage(url, response.dataUrl);
+        } else {
+          job.retryAt = Date.now() + job.attempts * 2000;
+          dlog('IMAGE-CACHE-FAILED', '#e84118', { attempt: job.attempts, error: error || response?.error || 'No image response' });
+          if (job.attempts < 3) setTimeout(drainImageCache, job.attempts * 2000);
+        }
+        drainImageCache();
+      };
+      try {
+        chrome.runtime.sendMessage({ type: 'CACHE_MESSAGE_IMAGE', url }, (response) => {
+          finish(response, chrome.runtime.lastError?.message);
+        });
+      } catch (error) { finish(null, error.message); }
+    }
+  }
+
   function getOrCacheImageSrc(imgEl) {
     const rawSrc = imgEl.currentSrc || imgEl.src || '';
     if (!rawSrc) return '';
@@ -2785,7 +2868,7 @@
       return cachedImageMap.get(rawSrc);
     }
 
-    if (imgEl.complete && imgEl.naturalWidth > 64 && imgEl.naturalHeight > 64) {
+    if (imgEl.complete && imgEl.naturalWidth > 0 && imgEl.naturalHeight > 0) {
       try {
         const maxDim = 360;
         let w = imgEl.naturalWidth;
@@ -2806,12 +2889,13 @@
         ctx.drawImage(imgEl, 0, 0, w, h);
         const dataUrl = canvas.toDataURL('image/webp', 0.82);
         if (dataUrl && dataUrl.startsWith('data:image/')) {
-          cachedImageMap.set(rawSrc, dataUrl);
+          rememberCachedImage(rawSrc, dataUrl);
           return dataUrl;
         }
       } catch (_) {}
     }
 
+    queueImageCache(rawSrc);
     return rawSrc;
   }
 
@@ -4984,7 +5068,7 @@
 
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-          if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          if (mutation.type === 'childList' || mutation.type === 'characterData' || mutation.type === 'attributes') {
             scheduleDomScan();
             break;
           }
@@ -4994,7 +5078,20 @@
       observer.observe(document.body, {
         childList: true,
         subtree: true,
-        characterData: true
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['src', 'srcset']
+      });
+
+      document.addEventListener('load', (event) => {
+        if (event.target?.tagName === 'IMG') scheduleDomScan();
+      }, true);
+      window.addEventListener('online', () => {
+        for (const job of imageCacheJobs.values()) {
+          if (!job.pending) { job.attempts = 0; job.retryAt = 0; }
+        }
+        drainImageCache();
+        scheduleDomScan();
       });
 
       window.addEventListener('focus', () => {
@@ -5002,12 +5099,14 @@
       });
 
       document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingStorage();
         if (document.visibilityState === 'visible') {
           dlog('TAB-VISIBLE', '#00a8ff', 'Tab Facebook hiển thị trở lại, quét lại Fiber & DOM');
           scheduleDomScan();
           setTimeout(scheduleDomScan, 400);
         }
       });
+      window.addEventListener('pagehide', flushPendingStorage);
 
       let lastHref = location.href;
       setInterval(() => {

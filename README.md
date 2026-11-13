@@ -72,7 +72,7 @@ Bạn có thể cài đặt trên **Google Chrome**, **Microsoft Edge**, **Brave
    - **Brave**: `brave://extensions/`
 4. Bật công tắc **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
 5. Nhấn nút **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục vừa giải nén.
-6. Mở hoặc tải lại trang [facebook.com](https://www.facebook.com/) để tiện ích bắt đầu hoạt động.
+6. Mở hoặc tải lại trang [facebook.com](https://www.facebook.com/) hoặc [messenger.com](https://www.messenger.com/) để tiện ích bắt đầu hoạt động. Nếu đã cài tiện ích, nhấn **Tải lại (Reload)** trong trang quản lý tiện ích trước khi tải lại trang chat. Lịch sử trên Messenger nằm chung trong mục **Facebook** của Popup; chỉ những tin nhắn tiện ích đã ghi nhận mới có thể xem lại sau khi bị gỡ.
 
 #### Cách 2: Dành cho nhà phát triển (Clone từ Git)
 ```bash
@@ -81,6 +81,15 @@ git clone https://github.com/HOANGGLEEE.git
 Sau đó vào `chrome://extensions/` → Bật **Developer mode** → Chọn **Load unpacked** và trỏ tới thư mục vừa clone.
 
 ---
+
+### Chạy liên tục và lưu ảnh
+
+- Sau khi cập nhật mã: **Tải lại** tiện ích trong `chrome://extensions/`, chấp nhận quyền đọc ảnh trên `fbcdn.net` / `fbsbx.com` nếu trình duyệt hỏi, rồi tải lại tab Messenger/Facebook.
+- Giữ trình duyệt và ít nhất một tab Messenger/Facebook đang đăng nhập, có mạng; máy phải còn thức. Trong `chrome://settings/performance`, thêm `www.messenger.com` và `www.facebook.com` vào **Luôn giữ các trang web này hoạt động (Always keep these sites active)**. Xem [hướng dẫn Chrome](https://support.google.com/chrome/answer/12929150?hl=vi). Đây không phải cam kết ghi nhận đủ mọi tin nhắn 24/24.
+- Ảnh CDN được tải qua service worker để lưu nội dung cục bộ, tối đa **5 MB/ảnh**, **3 lượt tải đồng thời/tab**, thử tối đa **3 lần** khi lỗi. Ảnh lớn hơn hoặc tải thất bại vẫn giữ URL gốc; URL đó có thể hết hạn. Ảnh blob đã tải trong khung chat được lưu qua canvas nếu trình duyệt cho phép.
+- Quét lại khi ảnh tải xong, đổi `src`/`srcset` hoặc mạng trở lại. Lưu ngay phần dữ liệu đang chờ khi tab bị ẩn hoặc rời trang; việc đóng trình duyệt đột ngột vẫn có thể làm gián đoạn lượt tải/lưu.
+- Bộ đệm tin đã nhận giữ **500 tin gần nhất**. Tin chưa từng được ghi nhận, ảnh đã hết hạn hoặc đã bị gỡ trước khi tải xong có thể không khôi phục được. Cải tiến này tập trung vào ảnh; không lưu toàn bộ video/âm thanh thành tệp cục bộ.
+- Debug trực tiếp từ tab có thống kê `contentWorld.imageCache` và log `IMAGE-CACHE-FAILED`. Bản sửa có kiểm thử tự động, chưa được xác nhận bằng phiên chạy liên tục 24 giờ.
 
 ### 🛠️ Báo lỗi & Xuất nhật ký gỡ lỗi (Debug Log)
 
@@ -162,7 +171,7 @@ Compatible with **Google Chrome**, **Microsoft Edge**, **Brave**, **Opera**, and
    - **Brave**: `brave://extensions/`
 4. Enable **Developer mode** in the top-right corner.
 5. Click **Load unpacked** and select the extracted folder.
-6. Open or refresh [facebook.com](https://www.facebook.com/) to start capturing messages.
+6. Open or refresh [facebook.com](https://www.facebook.com/) or [messenger.com](https://www.messenger.com/) to start capturing messages. If already installed, **Reload** the extension on the extensions page before refreshing the chat. Messenger history shares the **Facebook** section in the popup; only messages captured by the extension can be viewed after being unsent.
 
 #### Option 2: Clone via Git
 ```bash

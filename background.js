@@ -14,6 +14,53 @@ const GITHUB_LATEST_RELEASE_API =
 const GITHUB_RELEASES_PAGE_URL = 'https://github.com/binhake/fb-unsend-viewer/releases';
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 giờ
 
+function isCacheableImageUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === 'https:' && !url.username && !url.password &&
+      ['fbcdn.net', 'fbsbx.com'].some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch (_) { return false; }
+}
+
+async function downloadImageForCache(rawUrl, senderUrl) {
+  const sender = new URL(senderUrl);
+  if (!/^https?:$/.test(sender.protocol) ||
+      !['facebook.com', 'messenger.com'].some((host) => sender.hostname === host || sender.hostname.endsWith(`.${host}`)) ||
+      !isCacheableImageUrl(rawUrl)) {
+    throw new Error('Image cache request is not allowed');
+  }
+  const response = await fetch(rawUrl, {
+    credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) throw new Error(`Image HTTP ${response.status}`);
+  const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!/^image\/(jpeg|png|webp|gif|avif)$/.test(mime)) throw new Error('Unsupported image type');
+  const maxBytes = 5 * 1024 * 1024;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > maxBytes) throw new Error('Image exceeds 5 MB cache limit');
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel();
+    throw error;
+  } finally { reader.releaseLock(); }
+  if (!size) throw new Error('Empty image');
+  let binary = '';
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i += 32768) {
+      binary += String.fromCharCode(...chunk.subarray(i, i + 32768));
+    }
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
 function parseSemVer(verStr) {
   const clean = String(verStr || '')
     .trim()
@@ -155,8 +202,16 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) return;
+
+  if (message.type === 'CACHE_MESSAGE_IMAGE') {
+    downloadImageForCache(message.url, sender.url || '').then(
+      (dataUrl) => sendResponse({ ok: true, dataUrl }),
+      (error) => sendResponse({ ok: false, error: error.message })
+    );
+    return true;
+  }
 
   if (message.type === 'INCREMENT_UNREAD_BADGE') {
     const key =
