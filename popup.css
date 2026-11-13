@@ -1291,3 +1291,4 @@ button {
     transition: none !important;
   }
 }
+ /* Facebook-only build: hide Instagram switch. */ #platform-ig-btn { display: none !important; } 

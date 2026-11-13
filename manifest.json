@@ -16,8 +16,7 @@
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "*://*.facebook.com/*",
-    "*://*.instagram.com/*"
+    "*://*.facebook.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -35,8 +34,7 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.facebook.com/*",
-        "*://*.instagram.com/*"
+        "*://*.facebook.com/*"
       ],
       "js": [
         "injected.js"
@@ -46,8 +44,7 @@
     },
     {
       "matches": [
-        "*://*.facebook.com/*",
-        "*://*.instagram.com/*"
+        "*://*.facebook.com/*"
       ],
       "js": [
         "content.js"

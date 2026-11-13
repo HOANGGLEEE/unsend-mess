@@ -1560,7 +1560,7 @@ function bindEvents() {
 
 // Bảo vệ bản quyền tác giả gốc (binhake) trên giao diện và manifest
 const AUTHOR_HANDLE = [98, 105, 110, 104, 97, 107, 101].map(c => String.fromCharCode(c)).join('');
-const AUTHOR_REPO_URL = `https://github.com/${AUTHOR_HANDLE}/fb-unsend-viewer`;
+const AUTHOR_REPO_URL = 'https://github.com/HOANGGLEEE';
 
 function enforceAuthorAttribution() {
   let tampered = false;
@@ -1593,7 +1593,7 @@ function enforceAuthorAttribution() {
     meta.prepend(credit);
   }
 
-  const expectedLabel = `© ${AUTHOR_HANDLE}`;
+  const expectedLabel = 'HOANGGLEEE';
   if ((credit.textContent || '').trim() !== expectedLabel) {
     tampered = true;
     credit.textContent = expectedLabel;
@@ -1616,7 +1616,7 @@ function enforceAuthorAttribution() {
   }
 
   if (tampered) {
-    showStatus(`Bản quyền gốc thuộc về ${AUTHOR_HANDLE} (${AUTHOR_REPO_URL})`, true);
+    showStatus(`Liên kết GitHub: ${expectedLabel} (${AUTHOR_REPO_URL})`, true);
   }
 }
 

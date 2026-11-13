@@ -116,7 +116,7 @@ File log chứa **nội dung các tin nhắn gần đây, tên người trong đ
 Dự án thuộc quyền sở hữu trí tuệ và bản quyền của **[binhake](https://github.com/binhake)** — phát hành theo **[Giấy phép Phi thương mại & Bắt buộc Ghi danh Tác giả (Non-Commercial & Strict Attribution License)](LICENSE)**:
 
 - ✅ **Sử dụng cá nhân miễn phí**: Bạn được phép tải về và cài đặt sử dụng cho mục đích cá nhân, phi thương mại.
-- 🔒 **Bắt buộc giữ nguyên 100% tên tác giả**: Mọi bản sao bắt buộc phải giữ nguyên tên tác giả **`binhake`**, liên kết kho lưu trữ gốc và nhãn bản quyền trên giao diện (`© binhake`). **Nghiêm cấm** xóa tên tác giả, đổi tên nhận vơ hoặc mạo danh chủ sở hữu dưới mọi hình thức.
+- 🔒 **Bắt buộc giữ nguyên 100% tên tác giả**: Mọi bản sao bắt buộc phải giữ nguyên tên tác giả **`binhake`**, liên kết kho lưu trữ gốc và nhãn bản quyền trên giao diện (`HOANGGLEEE`). **Nghiêm cấm** xóa tên tác giả, đổi tên nhận vơ hoặc mạo danh chủ sở hữu dưới mọi hình thức.
 - 🚫 **Nghiêm cấm thương mại hóa trái phép**: Không được phép bán, cho thuê, thu phí, gắn quảng cáo hoặc đăng tải lại lên các kho tiện ích (Chrome Web Store, Edge Add-ons...) khi chưa có sự đồng ý bằng văn bản và thỏa thuận chia sẻ quyền lợi/doanh thu (%) với tác giả **[binhake](https://github.com/binhake)**.
 
 ---
@@ -206,5 +206,5 @@ The log contains **recent message content, names of people in the chat, your Fac
 Copyright © 2026 **[binhake](https://github.com/binhake)**. All rights reserved under the **[Non-Commercial & Strict Attribution License (CC BY-NC-ND 4.0 + Commercial Revenue-Sharing Clause)](LICENSE)**:
 
 - **Personal Use Only**: Free to download and use strictly for personal, non-commercial purposes.
-- **100% Mandatory Attribution**: You must retain 100% of the author's name (**`binhake`**), repository links, source code copyright headers, and in-app UI attribution (`© binhake`). Removing author credits or claiming this project as your own is strictly prohibited and subject to DMCA Takedown.
+- **100% Mandatory Attribution**: You must retain 100% of the author's name (**`binhake`**), repository links, source code copyright headers, and in-app UI attribution (`HOANGGLEEE`). Removing author credits or claiming this project as your own is strictly prohibited and subject to DMCA Takedown.
 - **No Commercial Use Without Agreement**: Selling, paywalling, monetizing, or redistributing this extension on any store/marketplace without prior written consent, explicit author attribution, and a revenue-sharing (%) agreement with **[binhake](https://github.com/binhake)** is strictly forbidden.
