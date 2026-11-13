@@ -475,11 +475,11 @@
     initializedAt: new Date().toISOString(),
     hooks: { textDecoder: false, webSocket: false, xhr: false, define: false },
     counters: {
-      bridgeEventsSent: 0, wsCreated: 0, wsOpened: 0, wsClosed: 0,
+      bridgeEmitAttempts: 0, bridgeEventsSent: 0, wsCreated: 0, wsOpened: 0, wsClosed: 0,
       wsFramesReceived: 0, wsDecodedFrames: 0, wsRelevantFrames: 0,
       xhrRequests: 0, procedureCalls: 0,
       captureAttempts: 0, captureAccepted: 0, captureRejected: 0,
-      unsendSignals: 0, unsendPending: 0, unsendMatched: 0,
+      unsendSignals: 0, unsendPending: 0, unsendPendingResolved: 0, unsendMatched: 0,
       unsendEmitted: 0, e2eeRevokeEvents: 0
     },
     lastActivityAt: Date.now()
@@ -1056,7 +1056,7 @@
 
   function emitToContentScript(eventType, payload) {
     try {
-      mainDiagnostics.counters.bridgeEventsSent++;
+      mainDiagnostics.counters.bridgeEmitAttempts++;
       mainDiagnostics.lastActivityAt = Date.now();
       window.postMessage(
         {
@@ -1066,6 +1066,7 @@
         },
         '*'
       );
+      mainDiagnostics.counters.bridgeEventsSent++;
     } catch (err) {
       dlog('BRIDGE-EMIT-ERROR', '#e84118', { eventType, error: String(err?.message || err) });
     }
@@ -1228,6 +1229,10 @@
       queuedAt: now
     };
     const keys = buildPendingUnsendSignalKeys(messageId, extraInfo.altIds || [], extraInfo.rawMessageId || '');
+    if (keys.length === 0) {
+      dlog('UNSENT-PENDING-REJECTED', '#e84118', { reason: 'no-matchable-id', messageId, source: extraInfo.source || '' });
+      return null;
+    }
     for (const key of keys) pendingUnsendSignals.set(key, entry);
     while (pendingUnsendSignals.size > 300) {
       pendingUnsendSignals.delete(pendingUnsendSignals.keys().next().value);
@@ -1459,7 +1464,7 @@
 
     const pendingSignal = takePendingUnsendSignal(messageId, altIds || []);
     if (pendingSignal) {
-      mainDiagnostics.counters.unsendMatched++;
+      mainDiagnostics.counters.unsendPendingResolved++;
       dlog('UNSENT-PENDING-RESOLVED', '#00b894', {
         messageId,
         source: pendingSignal.extraInfo?.source || 'unknown',
@@ -1479,7 +1484,10 @@
   function triggerMessageUnsent(rawMessageId, extraInfo = {}) {
     mainDiagnostics.counters.unsendSignals++;
     const messageId = resolveCanonicalMessageId(rawMessageId);
-    if (!messageId) return;
+    if (!messageId) {
+      dlog('UNSENT-SIGNAL-REJECTED', '#e84118', { reason: 'missing-or-unresolvable-message-id', rawMessageId, source: extraInfo.source || '' });
+      return;
+    }
 
     const e2eeIds = extractIdsFromE2EEMsgId(messageId);
     const existing =
