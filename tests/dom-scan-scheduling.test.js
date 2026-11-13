@@ -62,6 +62,8 @@ test('DOM scan scheduler coalesces bursts and requests Fiber only when needed', 
   assert.equal(h.domScans.length, 0);
   h.advance(1);
   assert.equal(h.fiberScans, 1);
+  assert.equal(h.domScans.length, 0);
+  h.advance(80);
   assert.equal(h.domScans.length, 1);
 });
 
