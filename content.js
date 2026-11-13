@@ -543,6 +543,28 @@
   let recentMessagesList = [];
   let unsentMessagesList = [];
   let recentlyDisappearedMessages = [];
+  let historyReady = false;
+  let replayingStartupEvents = false;
+  const pendingUnsentEvents = [];
+  let historyReadyFallbackTimer = null;
+
+  function finishHistoryLoad(reason = 'storage') {
+    if (historyReady) return;
+    historyReady = true;
+    if (historyReadyFallbackTimer) {
+      clearTimeout(historyReadyFallbackTimer);
+      historyReadyFallbackTimer = null;
+    }
+    const queued = pendingUnsentEvents.splice(0);
+    if (queued.length) {
+      replayingStartupEvents = true;
+      for (const event of queued) handleUnsentEvent(event);
+      replayingStartupEvents = false;
+    }
+    dlog('HISTORY-READY', '#00b894', { reason, queuedEvents: queued.length,
+      unsentCount: unsentMessagesList.length, capturedCount: recentMessagesList.length });
+    scheduleDomScan(true);
+  }
 
   function stripDomReferences(obj) {
     if (!obj || typeof obj !== 'object') return obj;
@@ -1332,12 +1354,15 @@
     if (!isExtensionContextValid()) return;
     try {
       detectCurrentUserIdentity();
+      if (!historyReadyFallbackTimer) {
+        historyReadyFallbackTimer = setTimeout(() => finishHistoryLoad('storage-timeout'), 6000);
+      }
       chrome.storage.local.remove(['fb_captured_messages_v1', 'fb_unsent_messages_v1']);
 
       HistoryStore.get(
         [STORAGE_KEY_MESSAGES, STORAGE_KEY_UNSENT, STORAGE_KEY_CLEANED_FLAG, STORAGE_KEY_TOAST_ENABLED],
         (res) => {
-          if (!isExtensionContextValid() || !res) return;
+          if (!isExtensionContextValid() || !res) { finishHistoryLoad('empty-storage'); return; }
           isToastEnabled = res[STORAGE_KEY_TOAST_ENABLED] !== false;
           try {
             if (!res[STORAGE_KEY_CLEANED_FLAG]) {
@@ -1513,9 +1538,13 @@
             if (needsResave) {
               saveToStorage();
             }
-            scheduleDomScan();
-          } catch (_) {}
-        }
+            finishHistoryLoad('storage');
+          } catch (error) {
+            dlog('STORAGE-LOAD-ERROR', '#e84118', String(error));
+            finishHistoryLoad('storage-error');
+          }
+        },
+        { hydrateImages: false }
       );
     } catch (_) {}
   }
@@ -1776,7 +1805,7 @@
     } else if (type === 'FB_MSG_UNSENT') {
       handleUnsentEvent(payload);
     } else if (type === 'FB_FIBER_UPDATED') {
-      scanChatMessagesInDom();
+      scheduleDomScan();
     } else if (type === 'FB_CONTACT_AVATARS_UPDATED') {
       if (payload.byId && typeof payload.byId === 'object') {
         for (const [id, url] of Object.entries(payload.byId)) {
@@ -2294,12 +2323,26 @@
     unsentMessagesList.unshift(finalRecord);
     dlog('UNSENT-ADDED', '#e84118', 'Đã thêm bản ghi gỡ MỚI vào History:', finalRecord);
     saveToStorage();
-    showUnsentToast(finalRecord);
-    notifyUnreadBadge();
+    if (!replayingStartupEvents) {
+      showUnsentToast(finalRecord);
+      notifyUnreadBadge();
+    }
     return { record: finalRecord, isNew: true };
   }
 
   function handleUnsentEvent(unsentData) {
+    if (!historyReady) {
+      if (pendingUnsentEvents.length >= 200) pendingUnsentEvents.shift();
+      pendingUnsentEvents.push({
+        ...unsentData,
+        attachments: Array.isArray(unsentData.attachments) ? [...unsentData.attachments] : []
+      });
+      dlog('UNSENT-QUEUED-UNTIL-HISTORY-READY', '#fbc531', {
+        messageId: unsentData.messageId || unsentData.rawMessageId || '',
+        queued: pendingUnsentEvents.length
+      });
+      return;
+    }
     dlog('UNSENT-EVENT', '#fdcb6e', 'Nhận sự kiện FB_MSG_UNSENT từ MAIN:', unsentData);
     detectCurrentUserIdentity();
     if (
@@ -2351,12 +2394,8 @@
         messageId: unsentData.messageId,
         disappearedCount: recentlyDisappearedMessages.length
       });
-      requestMainWorldFiberScan();
-      setTimeout(() => scanChatMessagesInDom(), 60);
-      setTimeout(() => {
-        requestMainWorldFiberScan();
-        scanChatMessagesInDom();
-      }, 250);
+      scheduleDomScan(true);
+      setTimeout(() => scheduleDomScan(true), 250);
       return;
     }
 
@@ -2416,10 +2455,9 @@
     };
 
     const { record } = upsertUnsentRecord(candidateRecord);
-    requestMainWorldFiberScan();
-    setTimeout(() => scanChatMessagesInDom(record), 60);
-    setTimeout(() => scanChatMessagesInDom(record), 300);
-    setTimeout(() => scanChatMessagesInDom(record), 600);
+    scheduleDomScan(true, record);
+    setTimeout(() => scheduleDomScan(false, record), 300);
+    setTimeout(() => scheduleDomScan(false, record), 600);
   }
 
   function handleE2EERevokeResolved(payload) {
@@ -3658,6 +3696,7 @@
   }
 
   function scanChatMessagesInDom(specificRecord = null) {
+    if (!historyReady) return;
     const chatRows = getActualChatRows();
     if (chatRows.length === 0) return;
 
@@ -4688,12 +4727,26 @@
       return video;
     }
     const img = document.createElement('img');
-    img.src = url;
+    const storedImageRef = typeof url === 'string' && url.startsWith('idb-image:') ? url : '';
     img.className = isToast ? 'fb-unsend-toast-thumb' : 'fb-unsend-restored-img';
     img.title = 'Nhấn để phóng to hoặc tải ảnh';
+    if (storedImageRef) {
+      img.dataset.fbUnsendImageRef = storedImageRef;
+      HistoryStore.getImages([storedImageRef]).then((images) => {
+        const resolvedUrl = images?.[storedImageRef];
+        if (!img.isConnected) return;
+        if (resolvedUrl) img.src = resolvedUrl;
+        else img.remove();
+      }).catch(() => {
+        if (img.isConnected) img.remove();
+      });
+    } else {
+      img.src = url;
+    }
     img.addEventListener('click', (e) => {
       e.stopPropagation();
-      openImageLightbox(url);
+      const resolvedUrl = img.currentSrc || img.src;
+      if (resolvedUrl && !resolvedUrl.startsWith('idb-image:')) openImageLightbox(resolvedUrl);
     });
     img.addEventListener('error', () => {
       img.remove();
@@ -4916,6 +4969,13 @@
       document.body.appendChild(toastContainer);
     }
 
+    if (record.messageId && toastContainer.querySelector(`.fb-unsend-toast[data-fb-unsend-msg-id="${CSS.escape(record.messageId)}"]`)) {
+      return;
+    }
+    while (toastContainer.querySelectorAll('.fb-unsend-toast').length >= 3) {
+      toastContainer.querySelector('.fb-unsend-toast')?.remove();
+    }
+
     const toast = document.createElement('div');
     toast.className = `fb-unsend-toast${record.isSelf ? ' fb-unsend-toast-self' : ''}`;
     toast.dataset.fbUnsendMsgId = record.messageId || '';
@@ -5026,56 +5086,82 @@
   // ============================================================================
   // 2. KHỞI ĐỘNG MUTATION OBSERVER (SAU KHI TRANG TẢI XONG ĐỂ TRÁNH REACT ERROR #418)
   // ============================================================================
-  let domScanScheduled = false;
-  function scheduleDomScan() {
-    if (domScanScheduled) return;
-    domScanScheduled = true;
-    requestMainWorldFiberScan();
-    setTimeout(() => {
-      domScanScheduled = false;
-      scanChatMessagesInDom();
-    }, 60);
+  let domScanTimer = null;
+  let domScanInProgress = false;
+  let domScanPending = false;
+  let domScanPendingFiber = false;
+  let domScanPendingRecord = null;
+  let lastDomScanAt = 0;
+
+  function scheduleDomScan(forceFiber = false, specificRecord = null) {
+    if (!historyReady) return;
+    if (specificRecord) domScanPendingRecord = specificRecord;
+    if (forceFiber) domScanPendingFiber = true;
+    if (domScanTimer || domScanInProgress) {
+      domScanPending = true;
+      return;
+    }
+
+    const delay = Math.max(120, 450 - (Date.now() - lastDomScanAt));
+    domScanTimer = setTimeout(() => {
+      domScanTimer = null;
+      domScanInProgress = true;
+      domScanPending = false;
+      const shouldScanFiber = domScanPendingFiber;
+      const record = domScanPendingRecord;
+      domScanPendingFiber = false;
+      domScanPendingRecord = null;
+      if (shouldScanFiber) requestMainWorldFiberScan();
+
+      setTimeout(() => {
+        try {
+          scanChatMessagesInDom(record);
+        } finally {
+          lastDomScanAt = Date.now();
+          domScanInProgress = false;
+          if (domScanPending) {
+            const nextFiber = domScanPendingFiber;
+            const nextRecord = domScanPendingRecord;
+            domScanPending = false;
+            domScanPendingFiber = false;
+            domScanPendingRecord = null;
+            scheduleDomScan(nextFiber, nextRecord);
+          }
+        }
+      }, shouldScanFiber ? 80 : 0);
+    }, delay);
   }
 
-  try {
-    if (isExtensionContextValid() && chrome.storage?.onChanged) {
-      HistoryStore.onChanged.addListener((changes, areaName) => {
-        if (!isExtensionContextValid() || areaName !== 'local') return;
-        try {
-          if (changes[STORAGE_KEY_TOAST_ENABLED]) {
-            isToastEnabled = changes[STORAGE_KEY_TOAST_ENABLED].newValue !== false;
-          }
-          let updated = false;
-          if (changes[STORAGE_KEY_MESSAGES]?.newValue) {
-            const newMsgs = changes[STORAGE_KEY_MESSAGES].newValue;
-            if (Array.isArray(newMsgs)) {
-              recentMessagesList = HistoryStore.mergeLocal(newMsgs, recentMessagesList, changes[STORAGE_KEY_MESSAGES])
-                .map((msg) => sanitizeStoredRecord(msg));
-              for (const msg of recentMessagesList) {
-                if (msg.messageId) messagesById.set(msg.messageId, msg);
-              }
-              updated = true;
-            }
-          }
-          if (changes[STORAGE_KEY_UNSENT]?.newValue) {
-            const newUnsent = changes[STORAGE_KEY_UNSENT].newValue;
-            if (Array.isArray(newUnsent)) {
-              unsentMessagesList = HistoryStore.mergeLocal(newUnsent, unsentMessagesList, changes[STORAGE_KEY_UNSENT])
-                .map((msg) => sanitizeStoredRecord(msg))
-                .filter((msg) => msg.text || (msg.attachments && msg.attachments.length > 0));
-              for (const msg of unsentMessagesList) {
-                if (msg.messageId) messagesById.set(msg.messageId, msg);
-              }
-              updated = true;
-            }
-          }
-          if (updated) {
-            scheduleDomScan();
-          }
-        } catch (_) {}
-      });
+  const EXTENSION_OWNED_MUTATION_SELECTOR =
+    '#fb-unsend-toast-container, .fb-unsend-community-restored-list, .fb-unsend-media-list, .fb-unsend-unlocked-media, .fb-unsend-inline-text';
+
+  function isExtensionOwnedMutationNode(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    return Boolean(element && (
+      element.matches?.(EXTENSION_OWNED_MUTATION_SELECTOR) ||
+      element.closest?.(EXTENSION_OWNED_MUTATION_SELECTOR)
+    ));
+  }
+
+  function mutationTouchesChat(mutation) {
+    if (isExtensionOwnedMutationNode(mutation.target)) return false;
+    const target = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
+    if (mutation.type === 'attributes' || mutation.type === 'characterData') {
+      return Boolean(target?.closest?.('div[data-scope="messages_table"]'));
     }
-  } catch (_) {}
+    if (mutation.type !== 'childList') return false;
+    if (target?.closest?.('div[data-scope="messages_table"]')) return true;
+    for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+      if (isExtensionOwnedMutationNode(node)) continue;
+      const element = node?.nodeType === 1 ? node : node?.parentElement;
+      if (
+        element?.matches?.('div[data-scope="messages_table"]') ||
+        element?.closest?.('div[data-scope="messages_table"]') ||
+        element?.querySelector?.('div[data-scope="messages_table"]')
+      ) return true;
+    }
+    return false;
+  }
 
   function startDomObserver() {
     if (!document.body) {
@@ -5084,11 +5170,11 @@
     }
 
     setTimeout(() => {
-      scheduleDomScan();
+      scheduleDomScan(true);
 
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-          if (mutation.type === 'childList' || mutation.type === 'characterData' || mutation.type === 'attributes') {
+          if (mutationTouchesChat(mutation)) {
             scheduleDomScan();
             break;
           }
@@ -5104,8 +5190,12 @@
       });
 
       document.addEventListener('load', (event) => {
-        if (event.target?.tagName === 'IMG') scheduleDomScan();
+        if (
+          event.target?.tagName === 'IMG' &&
+          event.target.closest?.('div[data-scope="messages_table"]')
+        ) scheduleDomScan();
       }, true);
+
       window.addEventListener('online', () => {
         for (const job of imageCacheJobs.values()) {
           if (!job.pending) { job.attempts = 0; job.retryAt = 0; }
@@ -5114,16 +5204,13 @@
         scheduleDomScan();
       });
 
-      window.addEventListener('focus', () => {
-        scheduleDomScan();
-      });
+      window.addEventListener('focus', () => scheduleDomScan(true));
 
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') flushPendingStorage();
         if (document.visibilityState === 'visible') {
-          dlog('TAB-VISIBLE', '#00a8ff', 'Tab Facebook hiển thị trở lại, quét lại Fiber & DOM');
-          scheduleDomScan();
-          setTimeout(scheduleDomScan, 400);
+          dlog('TAB-VISIBLE', '#00a8ff', 'Tab Facebook hiển thị trở lại, quét DOM và Fiber một lần');
+          scheduleDomScan(true);
         }
       });
       window.addEventListener('pagehide', flushPendingStorage);
@@ -5132,16 +5219,7 @@
       setInterval(() => {
         if (location.href !== lastHref) {
           lastHref = location.href;
-          scheduleDomScan();
-          setTimeout(scheduleDomScan, 400);
-          setTimeout(scheduleDomScan, 1000);
-        } else if (unsentMessagesList.length > 0) {
-          const unm = document.querySelector(
-            'div[data-scope="messages_table"]:not([data-fb-unsend-restored="true"])'
-          );
-          if (unm) {
-            scheduleDomScan();
-          }
+          scheduleDomScan(true);
         }
       }, 1500);
     }, 1000);
