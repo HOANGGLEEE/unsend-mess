@@ -570,6 +570,7 @@
       domUnsentRows: 0,
       restoreHits: 0,
       restoreMisses: 0,
+      storageWriteAttempts: 0,
       storageWrites: 0,
       storageErrors: 0
     },
@@ -659,7 +660,10 @@
       }
     }
     const keys = buildPendingUnsentEventKeys(record);
-    if (keys.length === 0) return null;
+    if (keys.length === 0) {
+      dlog('UNSENT-PENDING-REJECTED', '#e84118', { reason: 'no-matchable-id', messageId: record.messageId || '', rawMessageId: record.rawMessageId || '', source: record.source || '' });
+      return null;
+    }
     const entry = { data: { ...record }, queuedAt: now };
     for (const key of keys) pendingUnsentEvents.set(key, entry);
     while (pendingUnsentEvents.size > 300) {
@@ -1675,7 +1679,7 @@
         }
         const cleanRecent = recentMessagesList.map(stripDomReferences);
         const cleanUnsent = unsentMessagesList.map(stripDomReferences);
-        contentDiagnostics.counters.storageWrites++;
+        contentDiagnostics.counters.storageWriteAttempts++;
         contentDiagnostics.lastActivityAt = Date.now();
         recentMessagesList = cleanRecent;
         unsentMessagesList = cleanUnsent;
@@ -1690,6 +1694,7 @@
               dlog('STORAGE-ERROR', '#e84118', 'Lỗi khi lưu chrome.storage.local:', chrome.runtime.lastError);
               saveOrphanedBridgeToLocalStorage();
             } else {
+              contentDiagnostics.counters.storageWrites++;
               dlog('STORAGE-SAVED', '#00b894', {
                 capturedCount: cleanRecent.length,
                 unsentCount: cleanUnsent.length
@@ -2576,7 +2581,10 @@
     contentDiagnostics.counters.unsentEventsReceived++;
     contentDiagnostics.lastActivityAt = Date.now();
     const revokedMsgId = payload.revokedMsgId || payload.revokeMsgId || '';
-    if (!revokedMsgId) return;
+    if (!revokedMsgId) {
+      dlog('E2EE-REVOKE-REJECTED', '#e84118', { reason: 'missing-revoke-message-id', payloadKeys: Object.keys(payload) });
+      return;
+    }
     const {
       originalMsgId,
       originalStanzaId,
