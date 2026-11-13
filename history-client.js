@@ -36,25 +36,34 @@ globalThis.HistoryStore = (() => {
       knownImages.delete(oldest);
     }
   }
-  async function hydrate(collections) {
+  async function loadImages(ids) {
+    const uniqueIds = [...new Set(ids)].filter((id) => HistoryModel.isImageRef(id));
+    const missing = uniqueIds.filter((id) => !imageData.has(id));
+    for (let i = 0; i < missing.length; i += 3) {
+      const batch = missing.slice(i, i + 3);
+      const response = await call({ type: 'HISTORY_IMAGES', ids: batch });
+      for (const [id, dataUrl] of Object.entries(response.images)) remember(id, dataUrl);
+    }
+    return new Map(uniqueIds.filter((id) => imageData.has(id)).map((id) => [id, imageData.get(id)]));
+  }
+  async function hydrate(collections, options = {}) {
     const missing = new Set();
-    for (const entry of Object.values(collections)) {
-      for (const record of entry.records) {
-        for (const value of [...(record.attachments || []), record.avatarUrl, record.senderAvatar]) {
-          if (HistoryModel.isImageRef(value) && !imageData.has(value)) missing.add(value);
+    if (options.hydrateImages !== false) {
+      for (const entry of Object.values(collections)) {
+        for (const record of entry.records) {
+          for (const value of [
+            ...(record.attachments || []),
+            ...Object.values(record.imageSources || {}),
+            record.avatarUrl,
+            record.senderAvatar
+          ]) {
+            if (HistoryModel.isImageRef(value) && !imageData.has(value)) missing.add(value);
+          }
         }
       }
+      await loadImages([...missing]);
     }
-    // Resolve in batches so a large history never creates an oversized runtime message.
-    const ids = [...missing];
     const resolved = new Map(imageData);
-    for (let i = 0; i < ids.length; i += 3) {
-      const response = await call({ type: 'HISTORY_IMAGES', ids: ids.slice(i, i + 3) });
-      for (const [id, dataUrl] of Object.entries(response.images)) {
-        remember(id, dataUrl);
-        resolved.set(id, dataUrl);
-      }
-    }
     const values = {};
     for (const [key, entry] of Object.entries(collections)) {
       epochs[key] = Math.max(epochs[key] || 0, entry.epoch);
@@ -67,14 +76,14 @@ globalThis.HistoryStore = (() => {
     }
     return values;
   }
-  async function read(keys, retry = true) {
+  async function read(keys, retry = true, options = {}) {
     const historyKeys = keys.filter((key) => HistoryModel.keys.includes(key));
     const otherKeys = keys.filter((key) => !HistoryModel.keys.includes(key));
     const response = historyKeys.length ? await call({ type: 'HISTORY_READ', keys: historyKeys }) : { collections: {} };
     let values;
-    try { values = await hydrate(response.collections); }
+    try { values = await hydrate(response.collections, options); }
     catch (error) {
-      if (retry && error.message === 'Missing stored image') return read(keys, false);
+      if (retry && error.message === 'Missing stored image') return read(keys, false, options);
       throw error;
     }
     if (otherKeys.length) Object.assign(values, await chrome.storage.local.get(otherKeys));
@@ -110,8 +119,11 @@ globalThis.HistoryStore = (() => {
     }
     return { patch, images };
   }
-  function get(keys, callback) {
-    read(keys).then(({ values }) => callback(values)).catch(report);
+  function get(keys, callback, options = {}) {
+    read(keys, true, options).then(({ values }) => callback(values)).catch(report);
+  }
+  function getImages(ids) {
+    return loadImages(ids).then((resolved) => Object.fromEntries(resolved));
   }
   function set(patch, callback = () => {}, options = {}) {
     const snapshot = structuredClone(patch);
@@ -169,5 +181,5 @@ globalThis.HistoryStore = (() => {
   function mergeLocal(incoming, local, change) {
     return HistoryModel.merge(incoming, change?.cleared ? [] : local, change?.deletedIds || []);
   }
-  return { get, set, removeUnsent, mergeLocal, onChanged: { addListener: (listener) => listeners.add(listener) } };
+  return { get, getImages, set, removeUnsent, mergeLocal, onChanged: { addListener: (listener) => listeners.add(listener) } };
 })();
