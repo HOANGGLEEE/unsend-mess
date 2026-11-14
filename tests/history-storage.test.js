@@ -229,3 +229,25 @@ test('worker protocol permits reads from chat tabs and reserves delete/import fo
   assert.equal((await invoke({ type: 'HISTORY_READ' }, { ...page, id: 'other-extension' })).ok, false);
   assert.equal(calls.length, 2);
 });
+
+test('service worker reuses migrated collection metadata across history requests', async () => {
+  const h = harness();
+  const originalGetAll = IDBObjectStore.prototype.getAll;
+  let collectionReads = 0;
+  IDBObjectStore.prototype.getAll = function (...args) {
+    if (this.name === 'collections') collectionReads++;
+    return originalGetAll.apply(this, args);
+  };
+  try {
+    const client = h.client();
+    await client.get([CAPTURED]);
+    const firstReadCount = collectionReads;
+    assert.equal(firstReadCount, 1);
+    await client.get([UNSENT]);
+    await client.set({ [UNSENT]: [record('cached-write')] });
+    await client.get([UNSENT]);
+    assert.equal(collectionReads, firstReadCount, 'subsequent requests should use the worker cache');
+  } finally {
+    IDBObjectStore.prototype.getAll = originalGetAll;
+  }
+});
